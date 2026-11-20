@@ -27,6 +27,7 @@ import { awardExperience, computeBattleXp, computeSharedPartyXp } from './Experi
 import { computeHeldStatMultiplier, getHeldItemDef } from './HeldItems.ts';
 import { applyMedicineToCreature, removeItem } from './Inventory.ts';
 import { getFirstHealthyIndex } from './Party.ts';
+import { selectActivePartyIndices } from './BattleFormation.ts';
 import { getDefaultBiomeWeather } from './TimeOfDay.ts';
 import { getTypeMultiplier } from './TypeChart.ts';
 import type {
@@ -60,7 +61,7 @@ export class BattleEngine {
     rng: Rng,
     trainer?: TrainerDef,
     biome?: BattleBiome,
-    extra?: { timePhase?: TimePhase; weather?: BattleWeather }
+    extra?: { timePhase?: TimePhase; weather?: BattleWeather; activePlayerCount?: number }
   ) {
     this.bag = bag;
     this.rng = rng;
@@ -82,6 +83,7 @@ export class BattleEngine {
       player: {
         party: playerParty,
         activeIndex: pIdx,
+        activeIndices: selectActivePartyIndices(playerParty, extra?.activePlayerCount ?? 1),
         stages: createDefaultStages(),
         flinched: false,
       },
@@ -100,6 +102,17 @@ export class BattleEngine {
   getActive(side: 'player' | 'enemy'): CreatureInstance {
     const s = side === 'player' ? this.state.player : this.state.enemy;
     return s.party[s.activeIndex];
+  }
+
+  /** Returns the party slots deployed at battle start; legacy callers still use getActive(). */
+  getActivePartyIndices(side: 'player' | 'enemy'): readonly number[] {
+    const sideState = this.getSide(side);
+    return sideState.activeIndices ?? [sideState.activeIndex];
+  }
+
+  getActiveParty(side: 'player' | 'enemy'): CreatureInstance[] {
+    const sideState = this.getSide(side);
+    return this.getActivePartyIndices(side).map((index) => sideState.party[index]).filter(Boolean);
   }
 
   private getSide(side: 'player' | 'enemy'): BattleSideState {
