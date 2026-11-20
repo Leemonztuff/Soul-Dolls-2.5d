@@ -425,8 +425,8 @@ export class BattleEngine {
       });
     }
     sideState.activeIndex = partyIndex;
-    this.resetCombatantVolatiles(side, next);
     const next = this.getActive(side);
+    this.resetCombatantVolatiles(side, next);
     ensureBodyParts(next);
     events.push({ type: 'switch_in', side, partyIndex, creature: next });
     events.push({ type: 'text', message: ES.battle.goCreature(getCreatureDisplayName(next)) });
