@@ -561,7 +561,8 @@ export class BattleHud {
       onBag: () => void;
       onParty: () => void;
       onRun: () => void;
-    }
+    },
+    movesOnly = false
   ): void {
     this.menuBox.classList.remove('hidden');
     this.playerBox.classList.remove('mb-[76px]', 'sm:mb-24');
@@ -582,6 +583,7 @@ export class BattleHud {
         onBag: callbacks.onBag,
         onParty: callbacks.onParty,
         onRun: callbacks.onRun,
+        movesOnly,
       })
     );
   }
