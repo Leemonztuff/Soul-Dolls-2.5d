@@ -688,7 +688,7 @@ export interface BattleState {
 
 export type BattleEvent =
   | { type: 'text'; message: string }
-  | { type: 'move_use'; side: 'player' | 'enemy'; moveId: string; moveName: string }
+  | { type: 'move_use'; side: 'player' | 'enemy'; moveId: string; moveName: string; actorUid?: string; actorPartyIndex?: number }
   | { type: 'miss'; side: 'player' | 'enemy' }
   | {
       type: 'damage';
@@ -700,6 +700,8 @@ export type BattleEvent =
       crit: boolean;
       damagedPart?: BodyPartName;
       partBroken?: BodyPartName;
+      targetUid?: string;
+      targetPartyIndex?: number;
     }
   | {
       type: 'heal';
