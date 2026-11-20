@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createRng } from '../src/core/Rng.ts';
+import { BattleEngine } from '../src/domain/BattleEngine.ts';
+import { createCreature } from '../src/domain/Creature.ts';
 import { selectActivePartyIndices } from '../src/domain/BattleFormation.ts';
 
 describe('battle formations', () => {
@@ -26,5 +29,19 @@ describe('battle formations', () => {
 
   it('returns fewer than three when fewer than three allies are healthy', () => {
     expect(selectActivePartyIndices([{ currentHp: 0 }, { currentHp: 8 }], 3)).toEqual([1]);
+  });
+
+  it('exposes the three selected allies through the battle engine only when requested', () => {
+    const rng = createRng(12);
+    const party = [createCreature(1, 5, rng), createCreature(2, 5, rng), createCreature(3, 5, rng)];
+    const enemy = createCreature(4, 5, rng);
+    const normal = new BattleEngine(party, [enemy], [], rng);
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+
+    expect(normal.getActivePartyIndices('player')).toEqual([0]);
+    expect(boss.getActivePartyIndices('player')).toEqual([0, 1, 2]);
+    expect(boss.getActiveParty('player')).toHaveLength(3);
   });
 });
