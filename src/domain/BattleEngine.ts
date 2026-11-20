@@ -1293,11 +1293,11 @@ export class BattleEngine {
     events.push({ type: 'text', message: ES.battle.fainted(faintedName) });
 
     if (faintedSide === 'enemy') {
-      const pIdx = this.state.player.activeIndex;
+      const deployedIndices = new Set(this.getActivePartyIndices('player'));
       const baseXp = computeBattleXp(fainted, !this.state.isWild);
       const grantXpToSlot = (slotIdx: number, amount: number): void => {
         const ally = this.state.player.party[slotIdx];
-        if (!ally || ally.currentHp <= 0) return;
+        if (!ally) return;
         const xpRes = awardExperience(ally, amount);
         const allyName = getCreatureDisplayName(ally);
         events.push({ type: 'xp_gain', partyIndex: slotIdx, amount, xpAfter: ally.xp });
@@ -1321,10 +1321,16 @@ export class BattleEngine {
         }
       };
 
-      grantXpToSlot(pIdx, baseXp);
+      // Every deployed ally participated in the boss battle and receives full
+      // participant XP. Reserve members keep the existing shared-party amount.
+      for (const partyIndex of deployedIndices) {
+        grantXpToSlot(partyIndex, baseXp);
+      }
       const benchXp = computeSharedPartyXp(baseXp);
       for (let i = 0; i < this.state.player.party.length; i++) {
-        if (i === pIdx) continue;
+        if (deployedIndices.has(i)) continue;
+        const reserve = this.state.player.party[i];
+        if (!reserve || reserve.currentHp <= 0) continue;
         grantXpToSlot(i, benchXp);
       }
 
