@@ -63,6 +63,25 @@ describe('battle formations', () => {
     expect(moveEvents.filter((event) => event.side === 'enemy')).toHaveLength(1);
   });
 
+  it('applies residual status damage independently to all three deployed allies', () => {
+    const rng = createRng(29);
+    const party = [createCreature(1, 12, rng), createCreature(2, 12, rng), createCreature(3, 12, rng)];
+    const enemy = createCreature(4, 40, rng);
+    for (const ally of party) ally.status = 'poison';
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+
+    const events = boss.stepBossRound([
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 1, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 2, action: { type: 'move', moveIndex: 0 } },
+    ]);
+
+    expect(events.filter((event) => event.type === 'status_tick' && event.target === 'player')).toHaveLength(3);
+    expect(party.every((ally) => ally.currentHp < ally.stats.hp)).toBe(true);
+  });
+
   it('rejects incomplete or duplicated ally actions before resolving the round', () => {
     const rng = createRng(28);
     const party = [createCreature(1, 8, rng), createCreature(2, 8, rng), createCreature(3, 8, rng)];
