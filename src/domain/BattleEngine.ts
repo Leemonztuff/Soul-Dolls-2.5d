@@ -1130,176 +1130,148 @@ export class BattleEngine {
   }
 
   private resolveEndOfTurn(events: BattleEvent[]): void {
-    const pSpe = this.effectiveSpeed('player');
-    const eSpe = this.effectiveSpeed('enemy');
-    const playerFirst =
-      pSpe > eSpe ? true : eSpe > pSpe ? false : this.rng.next() < 0.5;
-    const speedOrder: ReadonlyArray<'player' | 'enemy'> = playerFirst
-      ? ['player', 'enemy']
-      : ['enemy', 'player'];
+    // Process each deployed combatant once. Environment/round counters remain
+    // outside this loop so weather duration is decremented only once per round.
+    const participants = (['player', 'enemy'] as const).flatMap((side) =>
+      this.getActivePartyIndices(side)
+        .map((partyIndex) => ({ side, partyIndex, creature: this.getSide(side).party[partyIndex] }))
+        .filter((entry) => entry.creature && entry.creature.currentHp > 0)
+    );
+    participants.sort((a, b) => {
+      const speedA = a.creature.stats.spe * stageMultiplier(this.getCombatantState(a.side, a.creature).stages.spe);
+      const speedB = b.creature.stats.spe * stageMultiplier(this.getCombatantState(b.side, b.creature).stages.spe);
+      return speedB - speedA;
+    });
 
-    for (const side of speedOrder) {
-      if (this.state.finished) return;
-      const c = this.getActive(side);
-      const sState = this.getCombatantState(side, c);
-      if (c.currentHp <= 0) continue;
+    const originalIndices = {
+      player: this.state.player.activeIndex,
+      enemy: this.state.enemy.activeIndex,
+    };
 
-      if (c.status === 'burn' || c.status === 'poison') {
-        const divisor = c.status === 'burn' ? 12 : 8;
-        const dmg = Math.max(1, Math.floor(c.stats.hp / divisor));
-        applyDamageToBodyParts(c, dmg, 'torso');
-        const name = getCreatureDisplayName(c);
-        events.push({
-          type: 'status_tick',
-          target: side,
-          status: c.status,
-          damage: dmg,
-          hpAfter: c.currentHp,
-          maxHp: c.stats.hp,
-        });
-        events.push({
-          type: 'text',
-          message:
-            c.status === 'burn' ? ES.battle.burnDamage(name) : ES.battle.poisonDamage(name),
-        });
-        if (c.currentHp <= 0) {
-          this.handleFaint(side, events);
-          continue;
-        }
-      }
+    try {
+      for (const participant of participants) {
+        if (this.state.finished) return;
+        const { side, partyIndex } = participant;
+        const c = participant.creature;
+        const sideState = this.getSide(side);
+        sideState.activeIndex = partyIndex;
+        const sState = this.getCombatantState(side, c);
+        if (c.currentHp <= 0) continue;
 
-      if (sState.trappedTurns && sState.trappedTurns > 0 && c.currentHp > 0) {
-        sState.trappedTurns -= 1;
-        const dmg = Math.max(1, Math.floor(c.stats.hp / 10));
-        const partRes = applyDamageToBodyParts(c, dmg, 'legs');
-        events.push({
-          type: 'damage',
-          target: side,
-          amount: dmg,
-          hpAfter: c.currentHp,
-          maxHp: c.stats.hp,
-          effectiveness: 1,
-          crit: false,
-          damagedPart: partRes.damagedPart,
-          partBroken: partRes.partBroken,
-        });
-        events.push({ type: 'text', message: ES.battle.trapDamage(getCreatureDisplayName(c)) });
-        if (c.currentHp <= 0) {
-          this.handleFaint(side, events);
-          continue;
-        }
-      }
-
-      if (sState.leechSeeded && c.currentHp > 0) {
-        const oppSide: 'player' | 'enemy' = side === 'player' ? 'enemy' : 'player';
-        const opp = this.getActive(oppSide);
-        const drain = Math.max(1, Math.floor(c.stats.hp / 8));
-        const partRes = applyDamageToBodyParts(c, drain, 'torso');
-        events.push({
-          type: 'damage',
-          target: side,
-          amount: drain,
-          hpAfter: c.currentHp,
-          maxHp: c.stats.hp,
-          effectiveness: 1,
-          crit: false,
-          damagedPart: partRes.damagedPart,
-          partBroken: partRes.partBroken,
-        });
-        if (opp.currentHp > 0) {
-          healBodyParts(opp, drain);
-          events.push({
-            type: 'heal',
-            target: oppSide,
-            amount: drain,
-            hpAfter: opp.currentHp,
-            maxHp: opp.stats.hp,
-          });
-        }
-        events.push({ type: 'text', message: ES.battle.leechDamage(getCreatureDisplayName(c)) });
-        if (c.currentHp <= 0) {
-          this.handleFaint(side, events);
-          continue;
-        }
-      }
-
-      // Ability end-of-turn regen
-      const ab = getCreatureAbilityDef(c);
-      if (ab?.hooks.onTurnEnd?.healRatio && c.currentHp > 0 && c.currentHp < c.stats.hp) {
-        const healAmt = Math.max(1, Math.floor(c.stats.hp * ab.hooks.onTurnEnd.healRatio));
-        healBodyParts(c, healAmt);
-        events.push({
-          type: 'ability_triggered',
-          side,
-          abilityId: ab.id,
-          abilityName: ab.name,
-        });
-        events.push({
-          type: 'heal',
-          target: side,
-          amount: healAmt,
-          hpAfter: c.currentHp,
-          maxHp: c.stats.hp,
-        });
-      }
-
-      // Held item end-of-turn regen (e.g. Esencia Musgo)
-      const held = getHeldItemDef(c);
-      if (held?.heldHooks?.onTurnEnd?.healRatio && c.currentHp > 0 && c.currentHp < c.stats.hp) {
-        const healAmt = Math.max(1, Math.floor(c.stats.hp * held.heldHooks.onTurnEnd.healRatio));
-        healBodyParts(c, healAmt);
-        events.push({
-          type: 'held_item_triggered',
-          side,
-          itemId: held.id,
-          itemName: held.name,
-        });
-        events.push({
-          type: 'heal',
-          target: side,
-          amount: healAmt,
-          hpAfter: c.currentHp,
-          maxHp: c.stats.hp,
-        });
-      }
-    }
-
-    // Battle weather end-of-turn ticks & duration countdown
-    if (!this.state.finished && this.state.weather !== 'none') {
-      const weather = this.state.weather;
-      if (weather === 'sandstorm' || weather === 'snow') {
-        for (const side of speedOrder) {
-          if (this.state.finished) break;
-          const c = this.getActive(side);
-          if (c.currentHp <= 0) continue;
-          const types = getSpecies(c.speciesId).types;
-          const immune =
-            weather === 'sandstorm'
-              ? types.includes('roca')
-              : types.includes('marea') || types.includes('brisa');
-          if (immune) continue;
-
-          const dmg = Math.max(1, Math.floor(c.stats.hp / 16));
+        if (c.status === 'burn' || c.status === 'poison') {
+          const divisor = c.status === 'burn' ? 12 : 8;
+          const dmg = Math.max(1, Math.floor(c.stats.hp / divisor));
           applyDamageToBodyParts(c, dmg, 'torso');
+          const name = getCreatureDisplayName(c);
           events.push({
-            type: 'weather_tick',
-            weather,
+            type: 'status_tick',
             target: side,
+            status: c.status,
             damage: dmg,
             hpAfter: c.currentHp,
             maxHp: c.stats.hp,
           });
           events.push({
             type: 'text',
-            message: ES.battle.weatherTick[weather](getCreatureDisplayName(c)),
+            message: c.status === 'burn' ? ES.battle.burnDamage(name) : ES.battle.poisonDamage(name),
           });
           if (c.currentHp <= 0) {
             this.handleFaint(side, events);
+            continue;
           }
+        }
+
+        if (sState.trappedTurns > 0 && c.currentHp > 0) {
+          sState.trappedTurns -= 1;
+          const dmg = Math.max(1, Math.floor(c.stats.hp / 10));
+          const partRes = applyDamageToBodyParts(c, dmg, 'legs');
+          events.push({
+            type: 'damage',
+            target: side,
+            amount: dmg,
+            hpAfter: c.currentHp,
+            maxHp: c.stats.hp,
+            effectiveness: 1,
+            crit: false,
+            damagedPart: partRes.damagedPart,
+            partBroken: partRes.partBroken,
+          });
+          events.push({ type: 'text', message: ES.battle.trapDamage(getCreatureDisplayName(c)) });
+          if (c.currentHp <= 0) {
+            this.handleFaint(side, events);
+            continue;
+          }
+        }
+
+        if (sState.leechSeeded && c.currentHp > 0) {
+          const oppSide: 'player' | 'enemy' = side === 'player' ? 'enemy' : 'player';
+          const opp = this.getActive(oppSide);
+          const drain = Math.max(1, Math.floor(c.stats.hp / 8));
+          const partRes = applyDamageToBodyParts(c, drain, 'torso');
+          events.push({
+            type: 'damage',
+            target: side,
+            amount: drain,
+            hpAfter: c.currentHp,
+            maxHp: c.stats.hp,
+            effectiveness: 1,
+            crit: false,
+            damagedPart: partRes.damagedPart,
+            partBroken: partRes.partBroken,
+          });
+          if (opp.currentHp > 0) {
+            healBodyParts(opp, drain);
+            events.push({ type: 'heal', target: oppSide, amount: drain, hpAfter: opp.currentHp, maxHp: opp.stats.hp });
+          }
+          events.push({ type: 'text', message: ES.battle.leechDamage(getCreatureDisplayName(c)) });
+          if (c.currentHp <= 0) {
+            this.handleFaint(side, events);
+            continue;
+          }
+        }
+
+        const ab = getCreatureAbilityDef(c);
+        if (ab?.hooks.onTurnEnd?.healRatio && c.currentHp > 0 && c.currentHp < c.stats.hp) {
+          const healAmt = Math.max(1, Math.floor(c.stats.hp * ab.hooks.onTurnEnd.healRatio));
+          healBodyParts(c, healAmt);
+          events.push({ type: 'ability_triggered', side, abilityId: ab.id, abilityName: ab.name });
+          events.push({ type: 'heal', target: side, amount: healAmt, hpAfter: c.currentHp, maxHp: c.stats.hp });
+        }
+
+        const held = getHeldItemDef(c);
+        if (held?.heldHooks?.onTurnEnd?.healRatio && c.currentHp > 0 && c.currentHp < c.stats.hp) {
+          const healAmt = Math.max(1, Math.floor(c.stats.hp * held.heldHooks.onTurnEnd.healRatio));
+          healBodyParts(c, healAmt);
+          events.push({ type: 'held_item_triggered', side, itemId: held.id, itemName: held.name });
+          events.push({ type: 'heal', target: side, amount: healAmt, hpAfter: c.currentHp, maxHp: c.stats.hp });
         }
       }
 
-      if (!this.state.finished && this.state.weatherTurns > 0) {
+      // Weather affects every deployed combatant, but its duration ticks once.
+      if (!this.state.finished && (this.state.weather === 'sandstorm' || this.state.weather === 'snow')) {
+        const weather = this.state.weather;
+        const weatherTargets = (['player', 'enemy'] as const).flatMap((side) =>
+          this.getActivePartyIndices(side).map((partyIndex) => ({ side, partyIndex, creature: this.getSide(side).party[partyIndex] }))
+        );
+        for (const target of weatherTargets) {
+          if (this.state.finished) break;
+          const { side, partyIndex, creature } = target;
+          if (!creature || creature.currentHp <= 0) continue;
+          this.getSide(side).activeIndex = partyIndex;
+          const types = getSpecies(creature.speciesId).types;
+          const immune = weather === 'sandstorm'
+            ? types.includes('roca')
+            : types.includes('marea') || types.includes('brisa');
+          if (immune) continue;
+          const dmg = Math.max(1, Math.floor(creature.stats.hp / 16));
+          applyDamageToBodyParts(creature, dmg, 'torso');
+          events.push({ type: 'weather_tick', weather, target: side, damage: dmg, hpAfter: creature.currentHp, maxHp: creature.stats.hp });
+          events.push({ type: 'text', message: ES.battle.weatherTick[weather](getCreatureDisplayName(creature)) });
+          if (creature.currentHp <= 0) this.handleFaint(side, events);
+        }
+      }
+
+      if (!this.state.finished && this.state.weather !== 'none' && this.state.weatherTurns > 0) {
         this.state.weatherTurns -= 1;
         if (this.state.weatherTurns === 0) {
           this.state.weather = 'none';
@@ -1307,6 +1279,10 @@ export class BattleEngine {
           events.push({ type: 'text', message: ES.battle.weatherClear });
         }
       }
+    } finally {
+      // Preserve the legacy active slot used by the 1v1 scene and callers.
+      this.state.player.activeIndex = originalIndices.player;
+      this.state.enemy.activeIndex = originalIndices.enemy;
     }
   }
 
