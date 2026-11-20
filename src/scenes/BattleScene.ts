@@ -1807,7 +1807,12 @@ export class BattleScene implements Scene {
           this.game.markSpeciesSeen(ev.creature.speciesId, ev.creature.level);
         }
         this.refreshHud();
-        this.sendOutCreature(ev.side, done);
+        if (ev.side === 'player' && this.isBoss) {
+          const slotIndex = this.engine.getActivePartyIndices('player').indexOf(ev.partyIndex);
+          this.sendOutBossAlly(slotIndex, ev.creature, done);
+        } else {
+          this.sendOutCreature(ev.side, done);
+        }
         break;
       }
 
