@@ -1153,7 +1153,7 @@ export class BattleScene implements Scene {
           : isPlayer ? this.playerMatHandle : this.enemyMatHandle;
         const setAttackerOpacity = (opacity: number) => {
           if (attackerMatHandle) {
-            setAttackerOpacity(opacity);
+            attackerMatHandle.setOpacity(opacity);
           } else if (!Array.isArray(mesh.material)) {
             const material = mesh.material as THREE.MeshBasicMaterial;
             material.transparent = opacity < 1;
