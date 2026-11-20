@@ -1651,10 +1651,24 @@ export class BattleScene implements Scene {
 
       case 'faint': {
         const isPlayer = ev.target === 'player';
-        const mesh = isPlayer ? this.playerMesh : this.enemyMesh;
-        const matHandle = isPlayer ? this.playerMatHandle : this.enemyMatHandle;
-        const home = isPlayer ? PLAYER_STATION_POS : ENEMY_STATION_POS;
-        const baseScale = isPlayer ? this.playerScale : this.enemyScale;
+        const deployed = isPlayer && this.isBoss ? this.engine.getActiveParty('player') : [];
+        const deployedIndex = ev.targetUid
+          ? deployed.findIndex((creature) => creature.uid === ev.targetUid)
+          : -1;
+        const isFormationAlly = deployedIndex >= 0;
+        const mesh = isFormationAlly
+          ? this.bossAllyMeshes[deployedIndex]
+          : isPlayer ? this.playerMesh : this.enemyMesh;
+        const home = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
+        const baseScale = isFormationAlly
+          ? this.playerScale * 0.76
+          : isPlayer ? this.playerScale : this.enemyScale;
+        const material = isFormationAlly
+          ? mesh.material as THREE.MeshBasicMaterial
+          : null;
+        const matHandle = isFormationAlly
+          ? null
+          : isPlayer ? this.playerMatHandle : this.enemyMatHandle;
 
         this.battleCamera.playImmediate('ko_slowmo', 0.72, false);
         this.game.bus.emit('audio:sfx', { sfx: 'faint' });
@@ -1666,17 +1680,24 @@ export class BattleScene implements Scene {
           0.55,
           (t) => {
             mesh.position.y = home.y - t * baseScale * 0.35;
-            matHandle.setDissolve(t * 1.05);
-            this.stage.setShadowScale(ev.target, 1 - t * 0.8, t < 0.9);
+            if (matHandle) matHandle.setDissolve(t * 1.05);
+            if (material) {
+              material.transparent = true;
+              material.opacity = Math.max(0, 1 - t);
+            }
+            if (!isFormationAlly) {
+              this.stage.setShadowScale(ev.target, 1 - t * 0.8, t < 0.9);
+            }
           },
           () => {
             if (this.exited) return;
             if (isPlayer) this.playerAnimating = false;
             else this.enemyAnimating = false;
             mesh.visible = false;
-            mesh.position.copy(home);
-            matHandle.setDissolve(0);
-            this.stage.setShadowScale(ev.target, 1, false);
+            mesh.position.set(home.x, home.y, home.z);
+            if (matHandle) matHandle.setDissolve(0);
+            if (material) material.opacity = 1;
+            if (!isFormationAlly) this.stage.setShadowScale(ev.target, 1, false);
             done();
           }
         );
