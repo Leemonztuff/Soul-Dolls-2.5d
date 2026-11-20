@@ -1280,9 +1280,9 @@ export class BattleEngine {
         }
       }
     } finally {
-      // Preserve the legacy active slot used by the 1v1 scene and callers.
+      // Restore the legacy player slot. Keep an enemy replacement selected by
+      // handleFaint(); restoring the old index here would resurrect a fainted foe.
       this.state.player.activeIndex = originalIndices.player;
-      this.state.enemy.activeIndex = originalIndices.enemy;
     }
   }
 
