@@ -630,6 +630,8 @@ export interface TrainerDef {
   introText: string;
   defeatText: string;
   isBoss?: boolean;
+  /** Marks the story-ending boss; ordinary bosses must not open the ending modal. */
+  isFinalBoss?: boolean;
   isRival?: boolean;
   isLeague?: boolean;
   awardsBadge?: string;
