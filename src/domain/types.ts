@@ -646,6 +646,8 @@ export type BattleAction =
 export interface BattleSideState {
   party: CreatureInstance[];
   activeIndex: number;
+  /** Runtime formation slots. Empty/undefined keeps the legacy single-active behavior. */
+  activeIndices?: number[];
   stages: StatStages;
   flinched: boolean;
   confusedTurns?: number;
