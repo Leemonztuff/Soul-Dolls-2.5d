@@ -465,6 +465,7 @@ export class BattleHud {
           <span data-hp-text class="text-[10px] sm:text-[11px] font-bold text-porcelain tabular-nums shrink-0 leading-none">${c.currentHp}/${c.stats.hp} ${ES.party.hp}</span>
         </div>
         <div data-parts class="mt-1 pt-1 border-t-2 border-ash-purple"></div>
+        <div data-formation class="hidden mt-1 grid grid-cols-3 gap-1"></div>
         <div class="relative mt-1 h-[4px] w-full rounded-none bg-abyss-ink border border-ash-purple overflow-hidden">
           <div data-xp-fill class="h-full bg-ki-cyan transition-[width] duration-500 ease-out" style="width:${expPct}%"></div>
           <div class="pointer-events-none absolute inset-0 px-meter-segmented" aria-hidden="true"></div>
