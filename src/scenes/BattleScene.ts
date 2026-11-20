@@ -1072,11 +1072,37 @@ export class BattleScene implements Scene {
 
       case 'move_use': {
         const isPlayer = ev.side === 'player';
-        const mesh = isPlayer ? this.playerMesh : this.enemyMesh;
-        const home = isPlayer ? PLAYER_STATION_POS : ENEMY_STATION_POS;
-        const target = isPlayer ? ENEMY_STATION_POS : PLAYER_STATION_POS;
-        const baseScale = isPlayer ? this.playerScale : this.enemyScale;
-        const targetScale = isPlayer ? this.enemyScale : this.playerScale;
+        const actorCreature = ev.actorUid
+          ? this.engine.state[ev.side].party.find((creature) => creature.uid === ev.actorUid) ?? this.engine.getActive(ev.side)
+          : this.engine.getActive(ev.side);
+        const deployedPlayer = isPlayer ? this.engine.getActiveParty('player') : [];
+        const deployedActorIndex = isPlayer && this.isBoss
+          ? deployedPlayer.findIndex((creature) => creature.uid === actorCreature.uid)
+          : -1;
+        const targetPlayerIndex = !isPlayer && this.isBoss
+          ? this.engine.state.player.activeIndex
+          : -1;
+        const deployedTargetIndex = !isPlayer && this.isBoss
+          ? deployedPlayer.findIndex((creature) => this.engine.state.player.party.indexOf(creature) === targetPlayerIndex)
+          : -1;
+        const mesh = deployedActorIndex >= 0
+          ? this.bossAllyMeshes[deployedActorIndex] ?? this.playerMesh
+          : isPlayer ? this.playerMesh : this.enemyMesh;
+        const targetMesh = deployedTargetIndex >= 0
+          ? this.bossAllyMeshes[deployedTargetIndex] ?? this.playerMesh
+          : isPlayer ? this.enemyMesh : this.playerMesh;
+        const home = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
+        const target = {
+          x: targetMesh.position.x,
+          y: targetMesh.position.y,
+          z: targetMesh.position.z,
+        };
+        const baseScale = deployedActorIndex >= 0
+          ? this.playerScale * 0.76
+          : isPlayer ? this.playerScale : this.enemyScale;
+        const targetScale = deployedTargetIndex >= 0
+          ? this.playerScale * 0.76
+          : isPlayer ? this.enemyScale : this.playerScale;
 
         const move = getMove(ev.moveId);
         const usedMoveText = this.eventQueue[0];
@@ -1119,12 +1145,24 @@ export class BattleScene implements Scene {
 
         if (isPlayer) this.playerAnimating = true;
         else this.enemyAnimating = true;
-        const actorRig = isPlayer ? this.playerRig : this.enemyRig;
-
-        const attackerMatHandle = isPlayer ? this.playerMatHandle : this.enemyMatHandle;
+        const actorRig = deployedActorIndex >= 0
+          ? null
+          : isPlayer ? this.playerRig : this.enemyRig;
+        const attackerMatHandle = deployedActorIndex >= 0
+          ? null
+          : isPlayer ? this.playerMatHandle : this.enemyMatHandle;
+        const setAttackerOpacity = (opacity: number) => {
+          if (attackerMatHandle) {
+            setAttackerOpacity(opacity);
+          } else if (!Array.isArray(mesh.material)) {
+            const material = mesh.material as THREE.MeshBasicMaterial;
+            material.transparent = opacity < 1;
+            material.opacity = opacity;
+          }
+        };
         const targetSide = isPlayer ? 'enemy' : 'player';
 
-        const groundedY = this.getGroundedY(isPlayer ? 'player' : 'enemy');
+        const groundedY = home.y;
         let animFinished = false;
         let pendingImpactReactions = 0;
         let impactResolved = false;
@@ -1138,10 +1176,10 @@ export class BattleScene implements Scene {
           else this.enemyAnimating = false;
           this.meleeStabMesh.visible = false;
           mesh.visible = true;
-          attackerMatHandle.setOpacity(1);
+          setAttackerOpacity(1);
           mesh.position.set(home.x, groundedY, home.z);
           mesh.scale.setScalar(baseScale);
-          actorRig.injectImpulse(isPlayer ? -0.24 : 0.24, -0.45, 0.14);
+          actorRig?.injectImpulse(isPlayer ? -0.24 : 0.24, -0.45, 0.14);
           animFinished = true;
           maybeFinishMove();
         };
@@ -1201,10 +1239,9 @@ export class BattleScene implements Scene {
         if (move.category === 'physical') {
           let impactFired = false;
           let dashDustFired = false;
-          actorRig.injectImpulse(isPlayer ? 0.34 : -0.34, 0.36, 0.14);
+          actorRig?.injectImpulse(isPlayer ? 0.34 : -0.34, 0.36, 0.14);
 
-          const attackerCreature = this.engine.getActive(ev.side);
-          const attackSpec = getAttackSheetSpecForSpecies(attackerCreature?.speciesId);
+          const attackSpec = getAttackSheetSpecForSpecies(actorCreature.speciesId);
           const activeTex = this.attackTextureCache.get(attackSpec.path);
           if (activeTex) {
             this.meleeStabMatHandle.setTexture(activeTex);
@@ -1228,7 +1265,7 @@ export class BattleScene implements Scene {
               if (st.phase === 'advance') {
                 this.meleeStabMesh.visible = false;
                 mesh.visible = true;
-                attackerMatHandle.setOpacity(st.attackerOpacity);
+                setAttackerOpacity(st.attackerOpacity);
 
                 const dashFrac = 0.36 * st.advanceLungeT;
                 mesh.position.x = THREE.MathUtils.lerp(home.x, target.x, dashFrac);
@@ -1257,7 +1294,7 @@ export class BattleScene implements Scene {
                 }
               } else if (st.phase === 'stab') {
                 mesh.visible = false;
-                attackerMatHandle.setOpacity(0);
+                setAttackerOpacity(0);
 
                 // Position directly to the right side of the opponent from the camera's viewpoint
                 _stabFwd.set(
@@ -1335,16 +1372,15 @@ export class BattleScene implements Scene {
                 mesh.visible = true;
                 mesh.position.set(home.x, groundedY, home.z);
                 mesh.scale.setScalar(baseScale);
-                attackerMatHandle.setOpacity(st.attackerOpacity);
+                setAttackerOpacity(st.attackerOpacity);
               }
             },
             finishMoveAnim
           );
         } else if (move.category === 'special') {
-          const attackerCreature = this.engine.getActive(ev.side);
-          if (hasSpeciesAnimationRole(attackerCreature?.speciesId, 'special_attack')) {
+          if (hasSpeciesAnimationRole(actorCreature.speciesId, 'special_attack')) {
             const specialSpec = getAttackSheetSpecForSpecies(
-              attackerCreature?.speciesId,
+              actorCreature.speciesId,
               'special_attack'
             );
             const specialTex = this.attackTextureCache.get(specialSpec.path);
@@ -1355,7 +1391,7 @@ export class BattleScene implements Scene {
             const castScale = baseScale * 1.18;
             const aspect = specialSpec.aspectRatio ?? 1;
             let fxFired = false;
-            actorRig.injectImpulse(0, 0.38, 0.14);
+            actorRig?.injectImpulse(0, 0.38, 0.14);
 
             this.tweens.start(
               MELEE_STAB_DURATION,
@@ -1365,7 +1401,7 @@ export class BattleScene implements Scene {
                   t < 0.08 ? t / 0.08 : t > 0.88 ? Math.max(0, 1 - (t - 0.88) / 0.12) : 1;
 
                 mesh.visible = false;
-                attackerMatHandle.setOpacity(0);
+                setAttackerOpacity(0);
                 this.meleeStabMesh.position.set(home.x, groundedY, home.z);
                 this.meleeStabMesh.scale.set(castScale * aspect, castScale, 1);
                 this.meleeStabMesh.visible = true;
@@ -1381,7 +1417,7 @@ export class BattleScene implements Scene {
 
                 if (frameIndex >= specialSpec.impactFrame && !fxFired) {
                   fxFired = true;
-                  actorRig.injectImpulse(0, -0.5, 0.18);
+                  actorRig?.injectImpulse(0, -0.5, 0.18);
                   this.fx.playTypeMove(move.type, _fromPos, _toPos, 'special', {
                     power: move.power,
                     fromGroundY: home.y,
@@ -1396,7 +1432,7 @@ export class BattleScene implements Scene {
             );
           } else {
             let fxFired = false;
-            actorRig.injectImpulse(0, 0.38, 0.14);
+            actorRig?.injectImpulse(0, 0.38, 0.14);
             const bx = (home.x - target.x) * 0.08;
             const bz = (home.z - target.z) * 0.08;
             this.fx.ring(_fromPos, {
@@ -1418,7 +1454,7 @@ export class BattleScene implements Scene {
                 mesh.position.y = groundedY + hop * 0.22;
                 if (t >= 0.36 && !fxFired) {
                   fxFired = true;
-                  actorRig.injectImpulse(0, -0.5, 0.18);
+                  actorRig?.injectImpulse(0, -0.5, 0.18);
                   this.fx.playTypeMove(move.type, _fromPos, _toPos, 'special', {
                     power: move.power,
                     fromGroundY: home.y,
@@ -1433,7 +1469,7 @@ export class BattleScene implements Scene {
             );
           }
         } else {
-          actorRig.injectImpulse(0, 0.28, 0.18);
+          actorRig?.injectImpulse(0, 0.28, 0.18);
           this.fx.playTypeMove(move.type, _fromPos, _toPos, 'status', {
             power: move.power,
             fromGroundY: home.y,
