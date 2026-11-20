@@ -197,7 +197,8 @@ export class BattleScene implements Scene {
       game.saveData.bag,
       game.rng,
       params.trainer,
-      this.biome
+      this.biome,
+      { activePlayerCount: this.isBoss ? 3 : 1 }
     );
 
     this.stage = new BattleStage(this.scene, game.assets, this.biome, this.isBoss);
