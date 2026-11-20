@@ -491,6 +491,35 @@ export class BattleEngine {
     return events;
   }
 
+  /** Replace one deployed boss formation slot with a healthy reserve creature. */
+  replaceDeployedPlayerAlly(slotIndex: number, partyIndex: number): BattleEvent[] {
+    const deployed = [...this.getActivePartyIndices('player')];
+    if (slotIndex < 0 || slotIndex >= deployed.length) return [];
+    const outgoingIndex = deployed[slotIndex];
+    const outgoing = this.state.player.party[outgoingIndex];
+    const incoming = this.state.player.party[partyIndex];
+    if (!outgoing || outgoing.currentHp > 0 || !incoming || incoming.currentHp <= 0) return [];
+    if (deployed.includes(partyIndex)) return [];
+
+    deployed[slotIndex] = partyIndex;
+    this.state.player.activeIndices = deployed;
+    this.state.player.activeIndex = partyIndex;
+    ensureBodyParts(incoming);
+    this.resetCombatantVolatiles('player', incoming);
+
+    const events: BattleEvent[] = [{
+      type: 'switch_in',
+      side: 'player',
+      partyIndex,
+      creature: incoming,
+    }, {
+      type: 'text',
+      message: ES.battle.goCreature(getCreatureDisplayName(incoming)),
+    }];
+    this.triggerOnEntry('player', events);
+    return events;
+  }
+
   private getMoveForAction(side: 'player' | 'enemy', action: BattleAction): MoveDef {
     const c = this.getActive(side);
     const idx = action.type === 'move' ? action.moveIndex : 0;
