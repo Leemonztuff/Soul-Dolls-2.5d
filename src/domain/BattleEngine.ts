@@ -711,6 +711,8 @@ export class BattleEngine {
     events.push({
       type: 'damage',
       target: targetSide,
+      targetUid: defender.uid,
+      targetPartyIndex: this.state[targetSide].activeIndex,
       amount: actualDamage,
       hpAfter: defender.currentHp,
       maxHp: defender.stats.hp,
@@ -818,7 +820,14 @@ export class BattleEngine {
     slot.pp = Math.max(0, slot.pp - 1);
     const move = getMove(slot.moveId);
 
-    events.push({ type: 'move_use', side, moveId: move.id, moveName: move.name });
+    events.push({
+      type: 'move_use',
+      side,
+      moveId: move.id,
+      moveName: move.name,
+      actorUid: attacker.uid,
+      actorPartyIndex: this.state[side].activeIndex,
+    });
     events.push({ type: 'text', message: ES.battle.usedMove(attackerName, move.name) });
 
     if (move.effect.kind === 'protect') {
