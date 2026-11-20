@@ -28,7 +28,7 @@ import { computeHeldStatMultiplier, getHeldItemDef } from './HeldItems.ts';
 import { applyMedicineToCreature, removeItem } from './Inventory.ts';
 import { getFirstHealthyIndex } from './Party.ts';
 import { selectActivePartyIndices } from './BattleFormation.ts';
-import { createBattleCombatantStates } from './BattleCombatantState.ts';
+import { createBattleCombatantStates, getBattleCombatantState } from './BattleCombatantState.ts';
 import { getDefaultBiomeWeather } from './TimeOfDay.ts';
 import { getTypeMultiplier } from './TypeChart.ts';
 import type {
@@ -122,6 +122,13 @@ export class BattleEngine {
     return side === 'player' ? this.state.player : this.state.enemy;
   }
 
+  /** Volatile effects and stat stages follow the individual creature, never the whole party. */
+  private getCombatantState(side: 'player' | 'enemy', creature = this.getActive(side)) {
+    const sideState = this.getSide(side);
+    if (!sideState.combatants) throw new Error(`Missing combatant states for ${side}.`);
+    return getBattleCombatantState(sideState.combatants, creature.uid);
+  }
+
   consumeInitialEntryEvents(): BattleEvent[] {
     if (this.entryTriggeredOnce) return [];
     this.entryTriggeredOnce = true;
@@ -142,13 +149,16 @@ export class BattleEngine {
     return events;
   }
 
-  private resetSideVolatiles(sideState: BattleSideState): void {
-    sideState.stages = createDefaultStages();
-    sideState.flinched = false;
-    sideState.confusedTurns = 0;
-    sideState.trappedTurns = 0;
-    sideState.leechSeeded = false;
-    sideState.protected = false;
+  private resetCombatantVolatiles(side: 'player' | 'enemy', creature = this.getActive(side)): void {
+    const state = this.getCombatantState(side, creature);
+    state.stages = createDefaultStages();
+    state.flinched = false;
+    state.confusedTurns = 0;
+    state.trappedTurns = 0;
+    state.leechSeeded = false;
+    state.protected = false;
+    state.statDropGuarded = false;
+    state.lowHpBerryUsed = false;
   }
 
   private triggerOnEntry(side: 'player' | 'enemy', events: BattleEvent[]): void {
@@ -184,11 +194,11 @@ export class BattleEngine {
     delta: number,
     events: BattleEvent[]
   ): void {
-    const sideState = this.getSide(targetSide);
-    if (delta < 0 && sideState.statDropGuarded) return;
     const targetCreature = this.getActive(targetSide);
+    const combatantState = this.getCombatantState(targetSide, targetCreature);
+    if (delta < 0 && combatantState.statDropGuarded) return;
     const targetName = getCreatureDisplayName(targetCreature);
-    const next = Math.max(-6, Math.min(6, sideState.stages[stat] + delta));
+    const next = Math.max(-6, Math.min(6, combatantState.stages[stat] + delta));
     if (next !== sideState.stages[stat]) {
       sideState.stages[stat] = next;
       events.push({ type: 'stat_change', target: targetSide, stat, delta });
@@ -205,7 +215,7 @@ export class BattleEngine {
 
   private effectiveSpeed(side: 'player' | 'enemy'): number {
     const c = this.getActive(side);
-    const s = this.getSide(side);
+    const s = this.getCombatantState(side, c);
     let spe = c.stats.spe * stageMultiplier(s.stages.spe);
     spe *= computeAbilityStatMultiplier(c, 'spe');
     spe *= computeHeldStatMultiplier(c, 'spe');
@@ -276,10 +286,13 @@ export class BattleEngine {
     }
 
     this.state.turnCount += 1;
-    this.state.player.flinched = false;
-    this.state.enemy.flinched = false;
-    this.state.player.protected = false;
-    this.state.enemy.protected = false;
+    for (const side of ['player', 'enemy'] as const) {
+      for (const creature of this.getActiveParty(side)) {
+        const combatant = this.getCombatantState(side, creature);
+        combatant.flinched = false;
+        combatant.protected = false;
+      }
+    }
 
     const enemyAction = this.chooseEnemyAction();
 
@@ -288,7 +301,7 @@ export class BattleEngine {
         events.push({ type: 'text', message: ES.battle.cantRunTrainer });
         return events;
       }
-      if (this.state.player.trappedTurns && this.state.player.trappedTurns > 0) {
+      if (this.getCombatantState('player').trappedTurns > 0) {
         events.push({ type: 'text', message: ES.battle.cantEscapeTrapped });
         return events;
       }
@@ -378,7 +391,7 @@ export class BattleEngine {
     if (!target || target.currentHp <= 0) return events;
     ensureBodyParts(target);
     this.state.player.activeIndex = partyIndex;
-    this.resetSideVolatiles(this.state.player);
+    this.resetCombatantVolatiles('player', target);
     events.push({
       type: 'switch_in',
       side: 'player',
@@ -412,7 +425,7 @@ export class BattleEngine {
       });
     }
     sideState.activeIndex = partyIndex;
-    this.resetSideVolatiles(sideState);
+    this.resetCombatantVolatiles(side, next);
     const next = this.getActive(side);
     ensureBodyParts(next);
     events.push({ type: 'switch_in', side, partyIndex, creature: next });
@@ -468,7 +481,7 @@ export class BattleEngine {
       if (!removeItem(this.bag, itemId, 1)) return false;
       events.push({ type: 'text', message: ES.bag.usedItem(item.name) });
       if (item.guardStatDrop) {
-        this.state.player.statDropGuarded = true;
+        this.getCombatantState('player').statDropGuarded = true;
         events.push({ type: 'text', message: ES.battle.guardApplied });
       }
       if (item.boostStat) {
@@ -654,8 +667,8 @@ export class BattleEngine {
     const targetSide: 'player' | 'enemy' = side === 'player' ? 'enemy' : 'player';
     const attacker = this.getActive(side);
     const defender = this.getActive(targetSide);
-    const attackerSideState = this.getSide(side);
-    const defenderSideState = this.getSide(targetSide);
+    const attackerSideState = this.getCombatantState(side, attacker);
+    const defenderSideState = this.getCombatantState(targetSide, defender);
 
     if (attacker.currentHp <= 0 || defender.currentHp <= 0) return;
 
@@ -975,12 +988,12 @@ export class BattleEngine {
     const targetSide = eff.target === 'self' ? attackerSide : defenderSide;
 
     if (eff.kind === 'flinch') {
-      this.getSide(defenderSide).flinched = true;
+      this.getCombatantState(defenderSide).flinched = true;
       return;
     }
 
     if (eff.kind === 'confuse') {
-      const dState = this.getSide(defenderSide);
+      const dState = this.getCombatantState(defenderSide);
       if (!dState.confusedTurns) {
         dState.confusedTurns = this.rng.int(2, 3);
         events.push({ type: 'text', message: ES.battle.becameConfused(defenderName) });
@@ -1040,7 +1053,7 @@ export class BattleEngine {
     for (const side of speedOrder) {
       if (this.state.finished) return;
       const c = this.getActive(side);
-      const sState = this.getSide(side);
+      const sState = this.getCombatantState(side, c);
       if (c.currentHp <= 0) continue;
 
       if (c.status === 'burn' || c.status === 'poison') {
@@ -1276,7 +1289,7 @@ export class BattleEngine {
         events.push({ type: 'battle_end', outcome: 'win', rewardMoney: reward });
       } else {
         this.state.enemy.activeIndex = nextEnemyIdx;
-        this.resetSideVolatiles(this.state.enemy);
+        this.resetCombatantVolatiles('enemy', nextEnemy);
         const nextEnemy = this.getActive('enemy');
         events.push({
           type: 'switch_in',
