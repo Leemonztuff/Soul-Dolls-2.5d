@@ -1298,7 +1298,13 @@ export class BattleEngine {
   private handleFaint(faintedSide: 'player' | 'enemy', events: BattleEvent[]): void {
     const fainted = this.getActive(faintedSide);
     const faintedName = getCreatureDisplayName(fainted);
-    events.push({ type: 'faint', target: faintedSide, creatureName: faintedName });
+    events.push({
+      type: 'faint',
+      target: faintedSide,
+      creatureName: faintedName,
+      targetUid: fainted.uid,
+      targetPartyIndex: this.state[faintedSide].activeIndex,
+    });
     events.push({ type: 'text', message: ES.battle.fainted(faintedName) });
 
     if (faintedSide === 'enemy') {
