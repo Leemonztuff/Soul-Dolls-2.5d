@@ -251,10 +251,11 @@ export class BattleHud {
     enemy: CreatureInstance,
     isWild: boolean,
     playerParty: readonly CreatureInstance[] = [player],
-    enemyParty: readonly CreatureInstance[] = [enemy]
+    enemyParty: readonly CreatureInstance[] = [enemy],
+    activeAllies: readonly CreatureInstance[] = [player]
   ): void {
     this.renderEnemyCard(enemy, isWild, enemyParty);
-    this.renderPlayerCard(player, playerParty);
+    this.renderPlayerCard(player, playerParty, activeAllies);
   }
 
   private renderHeldBadge(c: CreatureInstance): string {
@@ -378,6 +379,7 @@ export class BattleHud {
           <div data-hp-fill class="relative h-full ${barColor} transition-[width] duration-300 ease-out" style="width:${pct}%"></div>
           <div class="pointer-events-none absolute inset-0 px-meter-segmented" aria-hidden="true"></div>
         </div>
+        <div data-formation class="mt-1 grid grid-cols-3 gap-1"></div>
         <div data-parts class="mt-1 pt-1 border-t-2 border-ash-purple"></div>
       `;
       const partsSlot = this.enemyBox.querySelector('[data-parts]') as HTMLElement;
@@ -407,7 +409,8 @@ export class BattleHud {
 
   private renderPlayerCard(
     c: CreatureInstance,
-    playerParty: readonly CreatureInstance[]
+    playerParty: readonly CreatureInstance[],
+    activeAllies: readonly CreatureInstance[]
   ): void {
     const spec = getSpecies(c.speciesId);
     const isNew = this.lastPlayerUid !== c.uid;
@@ -481,6 +484,23 @@ export class BattleHud {
     (this.playerBox.querySelector('[data-types]') as HTMLElement).innerHTML = this.renderTypeChips(c.speciesId);
     (this.playerBox.querySelector('[data-balls]') as HTMLElement).innerHTML = this.renderPartyBalls(playerParty);
     (this.playerBox.querySelector('[data-status]') as HTMLElement).innerHTML = statusBadge;
+    const formationSlot = this.playerBox.querySelector('[data-formation]') as HTMLElement;
+    formationSlot.innerHTML = activeAllies.length > 1
+      ? activeAllies.map((ally, index) => {
+          const allyPct = Math.max(0, Math.min(100, Math.round((ally.currentHp / Math.max(1, ally.stats.hp)) * 100)));
+          const hpTone = allyPct > 50 ? 'bg-ui-success' : allyPct > 20 ? 'bg-ui-warning' : 'bg-ui-danger';
+          const state = ally.currentHp <= 0 ? 'CAÍDA' : ally.status !== 'none' ? ES.statusShort[ally.status] : 'ACTIVA';
+          return `<div class="min-w-0 border border-cold-stone bg-abyss-ink/80 px-1.5 py-1">
+            <div class="flex items-center justify-between gap-1 text-[9px] font-bold text-porcelain">
+              <span class="truncate">${index + 1}. ${getSpecies(ally.speciesId).name}</span>
+              <span class="shrink-0 text-resonant-gold">${state}</span>
+            </div>
+            <div class="mt-1 h-[4px] overflow-hidden bg-ash-purple"><div class="h-full ${hpTone}" style="width:${allyPct}%"></div></div>
+            <div class="mt-0.5 text-[9px] text-bone-gray tabular-nums">${ally.currentHp}/${ally.stats.hp} PV</div>
+          </div>`;
+        }).join('')
+      : '';
+    formationSlot.classList.toggle('hidden', activeAllies.length <= 1);
     this.renderLimbContainer('player');
 
     const fill = this.playerBox.querySelector('[data-hp-fill]') as HTMLElement;
