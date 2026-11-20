@@ -179,7 +179,7 @@ export class BattleEngine {
 
     if (entry.enemyStat) {
       const targetSide = this.getSide(oppSide);
-      if (!targetSide.statDropGuarded) {
+      if (!this.getCombatantState(oppSide).statDropGuarded) {
         this.applyStageDelta(oppSide, entry.enemyStat.stat, entry.enemyStat.delta, events);
       }
     }
@@ -199,8 +199,8 @@ export class BattleEngine {
     if (delta < 0 && combatantState.statDropGuarded) return;
     const targetName = getCreatureDisplayName(targetCreature);
     const next = Math.max(-6, Math.min(6, combatantState.stages[stat] + delta));
-    if (next !== sideState.stages[stat]) {
-      sideState.stages[stat] = next;
+    if (next !== combatantState.stages[stat]) {
+      combatantState.stages[stat] = next;
       events.push({ type: 'stat_change', target: targetSide, stat, delta });
       const statLabel = ES.stats[stat];
       events.push({
@@ -327,7 +327,7 @@ export class BattleEngine {
     }
 
     if (playerAction.type === 'switch') {
-      if (this.state.player.trappedTurns && this.state.player.trappedTurns > 0) {
+      if (this.getCombatantState('player').trappedTurns > 0) {
         events.push({ type: 'text', message: ES.battle.cantEscapeTrapped });
         return events;
       }
@@ -1021,7 +1021,7 @@ export class BattleEngine {
 
     if (eff.kind === 'burn_flinch') {
       if (this.rng.chance(50)) {
-        this.getSide(defenderSide).flinched = true;
+        this.getCombatantState(defenderSide).flinched = true;
       } else {
         this.tryInflictStatus(defenderSide, 'burn', events);
       }
@@ -1289,8 +1289,8 @@ export class BattleEngine {
         events.push({ type: 'battle_end', outcome: 'win', rewardMoney: reward });
       } else {
         this.state.enemy.activeIndex = nextEnemyIdx;
-        this.resetCombatantVolatiles('enemy', nextEnemy);
         const nextEnemy = this.getActive('enemy');
+        this.resetCombatantVolatiles('enemy', nextEnemy);
         events.push({
           type: 'switch_in',
           side: 'enemy',
