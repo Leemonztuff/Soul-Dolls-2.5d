@@ -2425,7 +2425,7 @@ export class OverworldScene implements Scene {
             }
 
             this.game.dialog.show(trainer.defeatText, () => {
-              if (trainer.isBoss) {
+              if (trainer.isFinalBoss) {
                 this.game.bus.emit('audio:music', { track: 'victory' });
                 this.game.endingModal.open(
                   this.game.saveData,
