@@ -541,8 +541,10 @@ export class BattleScene implements Scene {
     if (this.exited) return;
     this.introDone = true;
     if (this.isBoss && this.bossAllyMeshes.length > 0) {
-      this.playerMesh.visible = false;
-      this.bossAllyMeshes.forEach((mesh) => { mesh.visible = true; });
+      // Keep the original animated lead sprite for attack timing; add the two
+      // flank allies as static billboards to complete the three-unit formation.
+      this.playerMesh.visible = true;
+      this.bossAllyMeshes.forEach((mesh, index) => { mesh.visible = index !== 1; });
     }
     this.game.battleHud.show();
     this.refreshHud();
