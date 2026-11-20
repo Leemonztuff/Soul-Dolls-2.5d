@@ -396,8 +396,8 @@ export class BattleEngine {
   ): BattleEvent[] {
     if (this.state.finished) return [];
     const deployed = this.getActivePartyIndices('player');
-    if (deployed.length < 2 || deployed.length > 3) {
-      throw new Error('Boss rounds require a deployed formation of two or three allies.');
+    if (deployed.length < 1 || deployed.length > 3) {
+      throw new Error('Boss rounds require a deployed formation of one to three allies.');
     }
     if (alliedActions.length !== deployed.length) {
       throw new Error('Submit exactly one action for each deployed ally.');
