@@ -192,7 +192,7 @@ export class BattleScene implements Scene {
   ) {
     this.onDone = params.onDone;
     this.biome = params.biome ?? 'meadow';
-    this.isBoss = Boolean(params.trainer?.isBoss || params.trainer?.isRival);
+    this.isBoss = Boolean(params.trainer?.isBoss);
 
     this.engine = new BattleEngine(
       game.saveData.party,
