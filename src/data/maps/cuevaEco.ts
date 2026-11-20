@@ -121,6 +121,18 @@ export const MAP_CUEVA_ECO: MapDef = {
       lookAtPlayerAfterTalk: true,
     },
     {
+      id: 'npc_guardian_eco',
+      name: 'Guardián del Eco',
+      role: 'leader',
+      x: 28,
+      y: 23,
+      dir: 'left',
+      dialogKey: 'trainer',
+      trainerId: 'guardian_eco',
+      flagRequired: 'rival_2_defeated',
+      lookAtPlayerAfterTalk: true,
+    },
+    {
       id: 'npc_rival_2',
       name: 'Rival Damián',
       role: 'rival',
