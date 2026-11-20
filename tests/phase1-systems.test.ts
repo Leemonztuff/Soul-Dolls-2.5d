@@ -40,7 +40,7 @@ describe('Phase 1 systems', () => {
     const entry = engine.consumeInitialEntryEvents();
 
     expect(entry.some((e) => e.type === 'ability_triggered' && e.abilityId === 'intimidacion')).toBe(true);
-    expect(engine.state.enemy.stages.atk).toBe(-1);
+    expect(engine.state.enemy.combatants?.[enemy.uid]?.stages.atk).toBe(-1);
 
     const hpBefore = enemy.currentHp;
     const events = engine.stepTurn({ type: 'move', moveIndex: 0 });
