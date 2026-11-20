@@ -195,6 +195,7 @@ describe('Pokémon Gold Game Loop Improvements', () => {
 
     const trapEngine = new BattleEngine([p1, p2], [enemy], [], createRng(4));
     trapEngine.state.player.trappedTurns = 2;
+    trapEngine.state.player.combatants![p1.uid].trappedTurns = 2;
 
     const runEvents = trapEngine.stepTurn({ type: 'run' });
     expect(trapEngine.state.finished).toBe(false);
