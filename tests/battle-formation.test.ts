@@ -51,6 +51,9 @@ describe('battle formations', () => {
     const enemy = createCreature(4, 20, rng);
     enemy.stats.hp = 9999;
     enemy.currentHp = 9999;
+    enemy.stats.atk = 1;
+    enemy.stats.spa = 1;
+    enemy.stats.spe = 1;
     const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
       activePlayerCount: 3,
     });
