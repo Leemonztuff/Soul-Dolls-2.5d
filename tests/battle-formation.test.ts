@@ -63,6 +63,32 @@ describe('battle formations', () => {
     expect(moveEvents.filter((event) => event.side === 'enemy')).toHaveLength(1);
   });
 
+  it('awards full participant XP to all deployed boss allies', () => {
+    const rng = createRng(31);
+    const party = [
+      createCreature(1, 20, rng),
+      createCreature(2, 20, rng),
+      createCreature(3, 20, rng),
+      createCreature(4, 20, rng),
+    ];
+    const enemy = createCreature(5, 1, rng);
+    enemy.currentHp = 1;
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+
+    const events = boss.stepBossRound([
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 1, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 2, action: { type: 'move', moveIndex: 0 } },
+    ]);
+    const xpEvents = events.filter((event) => event.type === 'xp_gain');
+
+    expect(xpEvents.filter((event) => event.type === 'xp_gain' && event.partyIndex < 3)).toHaveLength(3);
+    expect(xpEvents.find((event) => event.type === 'xp_gain' && event.partyIndex === 3)?.amount)
+      .toBeLessThan(xpEvents.find((event) => event.type === 'xp_gain' && event.partyIndex === 0)?.amount ?? 0);
+  });
+
   it('applies residual status damage independently to all three deployed allies', () => {
     const rng = createRng(29);
     const party = [createCreature(1, 12, rng), createCreature(2, 12, rng), createCreature(3, 12, rng)];
