@@ -179,7 +179,6 @@ export class BattleEngine {
     });
 
     if (entry.enemyStat) {
-      const targetSide = this.getSide(oppSide);
       if (!this.getCombatantState(oppSide).statDropGuarded) {
         this.applyStageDelta(oppSide, entry.enemyStat.stat, entry.enemyStat.delta, events);
       }
