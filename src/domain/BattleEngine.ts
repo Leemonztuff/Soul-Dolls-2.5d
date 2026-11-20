@@ -327,7 +327,7 @@ export class BattleEngine {
     }
 
     if (playerAction.type === 'switch') {
-      if (this.getCombatantState('player').trappedTurns > 0) {
+      if (Math.max(this.getCombatantState('player').trappedTurns, this.state.player.trappedTurns ?? 0) > 0) {
         events.push({ type: 'text', message: ES.battle.cantEscapeTrapped });
         return events;
       }
