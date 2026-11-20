@@ -380,6 +380,7 @@ export class BattleHud {
           <div class="pointer-events-none absolute inset-0 px-meter-segmented" aria-hidden="true"></div>
         </div>
         <div data-formation class="mt-1 grid grid-cols-3 gap-1"></div>
+        <div data-formation class="hidden mt-1 grid grid-cols-3 gap-1"></div>
         <div data-parts class="mt-1 pt-1 border-t-2 border-ash-purple"></div>
       `;
       const partsSlot = this.enemyBox.querySelector('[data-parts]') as HTMLElement;
