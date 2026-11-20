@@ -913,14 +913,18 @@ export class BattleScene implements Scene {
     const hasHealthyReserve = this.engine.state.player.party.some(
       (creature, partyIndex) => !deployedSet.has(partyIndex) && creature.currentHp > 0
     );
-    const hasFaintedAlly = deployedIndices.some(
-      (partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp <= 0
-    );
+    const hasFaintedAlly = deployedIndices.some((partyIndex) => {
+      const ally = this.engine.state.player.party[partyIndex];
+      return Boolean(ally && ally.currentHp <= 0);
+    });
     if (hasFaintedAlly && hasHealthyReserve) {
       this.promptBossReplacement();
       return;
     }
-    if (!deployedIndices.some((partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp > 0)) {
+    if (!deployedIndices.some((partyIndex) => {
+      const ally = this.engine.state.player.party[partyIndex];
+      return Boolean(ally && ally.currentHp > 0);
+    })) {
       this.promptBossReplacement();
       return;
     }
@@ -976,9 +980,10 @@ export class BattleScene implements Scene {
 
   private promptBossReplacement(): void {
     const deployed = [...this.engine.getActivePartyIndices('player')];
-    const slotIndex = deployed.findIndex(
-      (partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp <= 0
-    );
+    const slotIndex = deployed.findIndex((partyIndex) => {
+      const ally = this.engine.state.player.party[partyIndex];
+      return Boolean(ally && ally.currentHp <= 0);
+    });
     if (slotIndex < 0) {
       this.promptForcedSwitch();
       return;
