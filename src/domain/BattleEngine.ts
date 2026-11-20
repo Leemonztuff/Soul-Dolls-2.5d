@@ -438,11 +438,11 @@ export class BattleEngine {
       const ally = this.state.player.party[partyIndex];
       const move = this.getMoveForActionForCreature(ally, action);
       return {
-        side: 'player',
+        side: 'player' as const,
         partyIndex,
         action,
         priority: move.priority + computeAbilityPriorityDelta(ally, move),
-        speed: ally.stats.spe * stageMultiplier(this.getCombatantState('player', ally).stages.spe),
+        speed: ally.stats.spe * stageMultiplier(this.getCombatantState('player', ally).stages.spe) * computeAbilityStatMultiplier(ally, 'spe') * computeHeldStatMultiplier(ally, 'spe'),
         tieBreak: this.rng.next(),
       };
     });
