@@ -89,6 +89,26 @@ describe('battle formations', () => {
       .toBeLessThan(xpEvents.find((event) => event.type === 'xp_gain' && event.partyIndex === 0)?.amount ?? 0);
   });
 
+  it('replaces a fainted deployed ally with a healthy reserve in the same slot', () => {
+    const rng = createRng(32);
+    const party = [
+      createCreature(1, 10, rng),
+      createCreature(2, 10, rng),
+      createCreature(3, 10, rng),
+      createCreature(4, 10, rng),
+    ];
+    const enemy = createCreature(5, 10, rng);
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+    party[1].currentHp = 0;
+
+    const events = boss.replaceDeployedPlayerAlly(1, 3);
+
+    expect(boss.getActivePartyIndices('player')).toEqual([0, 3, 2]);
+    expect(events.some((event) => event.type === 'switch_in' && event.partyIndex === 3)).toBe(true);
+  });
+
   it('applies residual status damage independently to all three deployed allies', () => {
     const rng = createRng(29);
     const party = [createCreature(1, 12, rng), createCreature(2, 12, rng), createCreature(3, 12, rng)];
