@@ -168,6 +168,7 @@ export class BattleScene implements Scene {
     player: null,
     enemy: null,
   };
+  private pendingBossActions: Array<{ partyIndex: number; action: BattleAction }> = [];
   private pendingEvolutions: Array<{ partyIndex: number; targetSpeciesId: number }> = [];
   private totalXpEarned = 0;
   private droppedCards: BattleResultDropSummary[] = [];
@@ -801,6 +802,10 @@ export class BattleScene implements Scene {
 
   private showPlayerCommandMenu(): void {
     if (this.engine.state.finished || this.exited) return;
+    if (this.isBoss) {
+      this.showBossAllyCommandMenu();
+      return;
+    }
     const active = this.engine.getActive('player');
     if (active.currentHp <= 0) {
       this.promptForcedSwitch();
@@ -854,6 +859,68 @@ export class BattleScene implements Scene {
           this.submitAction({ type: 'run' });
         },
       }
+    );
+  }
+
+  /**
+   * Boss rounds collect one move from each living deployed ally before the
+   * engine resolves the complete round. Fainted deployed slots submit a
+   * harmless placeholder which the engine skips.
+   */
+  private showBossAllyCommandMenu(): void {
+    if (this.engine.state.finished || this.exited) return;
+    const deployedIndices = [...this.engine.getActivePartyIndices('player')];
+    if (deployedIndices.length === 0) {
+      this.promptForcedSwitch();
+      return;
+    }
+    if (this.pendingBossActions.length === 0) {
+      this.pendingBossActions = [];
+    }
+    const nextIndex = deployedIndices.find(
+      (partyIndex) => !this.pendingBossActions.some((entry) => entry.partyIndex === partyIndex)
+    );
+    if (nextIndex === undefined) {
+      this.game.battleHud.hideMenu();
+      this.captureDisplayedBattleState();
+      const events = this.engine.stepBossRound(this.pendingBossActions);
+      this.pendingBossActions = [];
+      this.eventQueue.push(...events);
+      this.pumpEvents();
+      return;
+    }
+
+    const ally = this.engine.state.player.party[nextIndex];
+    if (!ally || ally.currentHp <= 0) {
+      this.pendingBossActions.push({
+        partyIndex: nextIndex,
+        action: { type: 'move', moveIndex: 0 },
+      });
+      this.showBossAllyCommandMenu();
+      return;
+    }
+
+    this.game.battleHud.showBanner(
+      `Turno de ${getCreatureDisplayName(ally)}`,
+      `Aliada ${deployedIndices.indexOf(nextIndex) + 1}/${deployedIndices.length}`
+    );
+    this.game.battleHud.showMainMenu(
+      ally,
+      this.engine.getActive('enemy'),
+      false,
+      {
+        onMove: (moveIndex) => {
+          this.pendingBossActions.push({
+            partyIndex: nextIndex,
+            action: { type: 'move', moveIndex },
+          });
+          this.showBossAllyCommandMenu();
+        },
+        onBag: () => {},
+        onParty: () => {},
+        onRun: () => {},
+      },
+      true
     );
   }
 
