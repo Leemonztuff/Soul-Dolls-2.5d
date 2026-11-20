@@ -741,7 +741,7 @@ export type BattleEvent =
       itemName: string;
       consumed?: boolean;
     }
-  | { type: 'faint'; target: 'player' | 'enemy'; creatureName: string }
+  | { type: 'faint'; target: 'player' | 'enemy'; creatureName: string; targetUid?: string; targetPartyIndex?: number }
   | { type: 'switch_out'; side: 'player' | 'enemy'; creatureName: string }
   | { type: 'switch_in'; side: 'player' | 'enemy'; partyIndex: number; creature: CreatureInstance }
   | { type: 'catch_attempt'; itemId: string; shakes: number; caught: boolean; speciesId: number }
