@@ -129,6 +129,8 @@ export class BattleScene implements Scene {
 
   private playerMesh: THREE.Mesh;
   private enemyMesh: THREE.Mesh;
+  /** Static formation billboards shown together during boss encounters. */
+  private bossAllyMeshes: THREE.Mesh[] = [];
   private meleeStabMesh: THREE.Mesh;
   private trainerMesh: THREE.Mesh | null = null;
   private capsuleMesh: THREE.Mesh;
@@ -295,6 +297,36 @@ export class BattleScene implements Scene {
     this.enemyMesh.scale.setScalar(this.enemyScale);
     this.enemyMesh.visible = false;
     this.enemyMesh.renderOrder = 2;
+
+    if (this.isBoss) {
+      const deployed = this.engine.getActiveParty('player');
+      const formationOffsets = [
+        { x: -0.9, z: 0.38 },
+        { x: 0, z: -0.22 },
+        { x: 0.9, z: 0.38 },
+      ];
+      deployed.forEach((creature, index) => {
+        const material = new THREE.MeshBasicMaterial({
+          map: game.assets.getCreatureTexture(creature.speciesId, 'back'),
+          alphaTest: 0.5,
+          side: THREE.DoubleSide,
+          transparent: true,
+        });
+        const mesh = new THREE.Mesh(unitGeo, material);
+        const offset = formationOffsets[index] ?? formationOffsets[1];
+        mesh.position.set(
+          PLAYER_STATION_POS.x + offset.x,
+          this.getGroundedY('player'),
+          PLAYER_STATION_POS.z + offset.z
+        );
+        mesh.scale.setScalar(this.playerScale * 0.76);
+        mesh.visible = false;
+        mesh.renderOrder = 2 + index * 0.01;
+        this.bossAllyMeshes.push(mesh);
+        this.scene.add(mesh);
+        this.disposables.track(material);
+      });
+    }
 
     if (params.trainer) {
       const charGeo = createBottomPivotPlaneGeometry(0.67, 1.0);
@@ -508,6 +540,10 @@ export class BattleScene implements Scene {
   private finishIntro(): void {
     if (this.exited) return;
     this.introDone = true;
+    if (this.isBoss && this.bossAllyMeshes.length > 0) {
+      this.playerMesh.visible = false;
+      this.bossAllyMeshes.forEach((mesh) => { mesh.visible = true; });
+    }
     this.game.battleHud.show();
     this.refreshHud();
     const entryEvents = this.engine.consumeInitialEntryEvents();
@@ -2104,6 +2140,11 @@ export class BattleScene implements Scene {
       }
       this.enemyMesh.lookAt(_camPos.x, this.enemyMesh.position.y, _camPos.z);
       this.enemyRig.applyToMesh(this.enemyMesh, this.enemyMatHandle);
+    }
+
+    for (const mesh of this.bossAllyMeshes) {
+      if (!mesh.visible) continue;
+      mesh.lookAt(_camPos.x, mesh.position.y, _camPos.z);
     }
 
     if (this.meleeStabMesh.visible) {
