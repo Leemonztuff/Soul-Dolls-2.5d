@@ -48,6 +48,8 @@ describe('battle formations', () => {
     const rng = createRng(27);
     const party = [createCreature(1, 8, rng), createCreature(2, 8, rng), createCreature(3, 8, rng)];
     const enemy = createCreature(4, 20, rng);
+    enemy.stats.hp = 9999;
+    enemy.currentHp = 9999;
     const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
       activePlayerCount: 3,
     });
@@ -113,6 +115,10 @@ describe('battle formations', () => {
     const rng = createRng(29);
     const party = [createCreature(1, 12, rng), createCreature(2, 12, rng), createCreature(3, 12, rng)];
     const enemy = createCreature(4, 40, rng);
+    enemy.stats.hp = 9999;
+    enemy.currentHp = 9999;
+    enemy.stats.atk = 1;
+    enemy.stats.spa = 1;
     for (const ally of party) ally.status = 'poison';
     const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
       activePlayerCount: 3,
