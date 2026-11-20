@@ -659,6 +659,41 @@ export class BattleScene implements Scene {
     }
   }
 
+  private sendOutBossAlly(slotIndex: number, creature: CreatureInstance, onDone: () => void): void {
+    const mesh = this.bossAllyMeshes[slotIndex];
+    if (!mesh) {
+      onDone();
+      return;
+    }
+    const material = mesh.material as THREE.MeshBasicMaterial;
+    material.map = this.game.assets.getCreatureTexture(creature.speciesId, 'back');
+    material.opacity = 1;
+    material.transparent = true;
+    material.needsUpdate = true;
+    const baseScale = this.playerScale * 0.76;
+    const homeY = this.getGroundedY('player');
+    mesh.position.y = homeY;
+    mesh.scale.setScalar(baseScale * 0.35);
+    mesh.visible = true;
+    this.game.synth.playCry(creature.speciesId);
+    this.tweens.start(
+      0.38,
+      (t) => {
+        const ease = 1 - Math.pow(1 - t, 3);
+        mesh.scale.setScalar(baseScale * (0.35 + 0.65 * ease));
+        mesh.position.y = homeY + Math.sin(t * Math.PI) * 0.24;
+        material.opacity = Math.min(1, t * 1.6);
+      },
+      () => {
+        if (this.exited) return;
+        mesh.position.y = homeY;
+        mesh.scale.setScalar(baseScale);
+        material.opacity = 1;
+        onDone();
+      }
+    );
+  }
+
   private sendOutCreature(side: 'player' | 'enemy', onDone: () => void): void {
     const isPlayer = side === 'player';
     const station = isPlayer ? PLAYER_STATION_POS : ENEMY_STATION_POS;
@@ -874,6 +909,10 @@ export class BattleScene implements Scene {
       this.promptForcedSwitch();
       return;
     }
+    if (!deployedIndices.some((partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp > 0)) {
+      this.promptBossReplacement();
+      return;
+    }
     if (this.pendingBossActions.length === 0) {
       this.pendingBossActions = [];
     }
@@ -921,6 +960,36 @@ export class BattleScene implements Scene {
         onRun: () => {},
       },
       true
+    );
+  }
+
+  private promptBossReplacement(): void {
+    const deployed = [...this.engine.getActivePartyIndices('player')];
+    const slotIndex = deployed.findIndex(
+      (partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp <= 0
+    );
+    if (slotIndex < 0) {
+      this.promptForcedSwitch();
+      return;
+    }
+    this.game.battleHud.hideMenu();
+    this.game.partyScreen.open(
+      this.game.saveData.party,
+      {
+        kind: 'switch',
+        activeIndex: deployed[slotIndex],
+        allowCancel: false,
+        onPick: (partyIndex) => {
+          const events = this.engine.replaceDeployedPlayerAlly(slotIndex, partyIndex);
+          if (events.length === 0) {
+            this.promptBossReplacement();
+            return;
+          }
+          this.eventQueue.push(...events);
+          this.pumpEvents();
+        },
+      },
+      () => this.promptBossReplacement()
     );
   }
 
