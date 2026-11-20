@@ -112,6 +112,7 @@ export const TRAINERS: Record<string, TrainerDef> = {
   },
   leader_valeria: {
     id: 'leader_valeria',
+    isFinalBoss: true,
     name: 'Valeria',
     title: 'Maestra Soultrainer',
     role: 'leader',
