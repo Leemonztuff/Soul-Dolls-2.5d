@@ -32,6 +32,7 @@ export interface BattleActionMenuViewProps {
   onBag: () => void;
   onParty: () => void;
   onRun: () => void;
+  movesOnly?: boolean;
 }
 
 export const BattleActionMenuView: React.FC<BattleActionMenuViewProps> = ({
@@ -43,8 +44,9 @@ export const BattleActionMenuView: React.FC<BattleActionMenuViewProps> = ({
   onBag,
   onParty,
   onRun,
+  movesOnly = false,
 }) => {
-  const [subMenu, setSubMenu] = useState<'root' | 'moves'>('root');
+  const [subMenu, setSubMenu] = useState<'root' | 'moves'>(movesOnly ? 'moves' : 'root');
   const enemyTypes = getSpecies(enemy.speciesId).types;
 
   const renderIcon = (kind: 'fight' | 'bag' | 'party' | 'run') =>
@@ -107,14 +109,16 @@ export const BattleActionMenuView: React.FC<BattleActionMenuViewProps> = ({
             );
           })}
         </div>
-        <PxButton
-          variant="secondary"
-          size="sm"
-          className="self-end px-3.5"
-          onClick={() => setSubMenu('root')}
-        >
-          {ES.party.back}
-        </PxButton>
+        {!movesOnly && (
+          <PxButton
+            variant="secondary"
+            size="sm"
+            className="self-end px-3.5"
+            onClick={() => setSubMenu('root')}
+          >
+            {ES.party.back}
+          </PxButton>
+        )}
       </div>
     );
   }
