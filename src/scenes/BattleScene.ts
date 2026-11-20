@@ -1069,7 +1069,11 @@ export class BattleScene implements Scene {
         }
         this.game.battleHud.showBanner(
           ev.moveName,
-          getCreatureDisplayName(this.engine.getActive(ev.side))
+          ev.actorUid
+            ? getCreatureDisplayName(
+                this.engine.state[ev.side].party.find((creature) => creature.uid === ev.actorUid) ?? this.engine.getActive(ev.side)
+              )
+            : getCreatureDisplayName(this.engine.getActive(ev.side))
         );
         const vfxStyle = getMoveVfxStyle(
           move.id,
