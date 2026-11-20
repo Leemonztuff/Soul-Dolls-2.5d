@@ -643,11 +643,25 @@ export type BattleAction =
   | { type: 'item'; itemId: string; targetPartyIndex?: number }
   | { type: 'run' };
 
+/** Volatile battle data belongs to an individual combatant, not its whole party. */
+export interface BattleCombatantState {
+  stages: StatStages;
+  flinched: boolean;
+  confusedTurns: number;
+  trappedTurns: number;
+  leechSeeded: boolean;
+  protected: boolean;
+  statDropGuarded: boolean;
+  lowHpBerryUsed: boolean;
+}
+
 export interface BattleSideState {
   party: CreatureInstance[];
   activeIndex: number;
   /** Runtime formation slots. Empty/undefined keeps the legacy single-active behavior. */
   activeIndices?: number[];
+  /** Per-creature volatile state; legacy side fields remain during the staged migration. */
+  combatants?: Record<string, BattleCombatantState>;
   stages: StatStages;
   flinched: boolean;
   confusedTurns?: number;
