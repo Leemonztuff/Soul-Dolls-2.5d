@@ -541,10 +541,10 @@ export class BattleScene implements Scene {
     if (this.exited) return;
     this.introDone = true;
     if (this.isBoss && this.bossAllyMeshes.length > 0) {
-      // Keep the original animated lead sprite for attack timing; add the two
-      // flank allies as static billboards to complete the three-unit formation.
-      this.playerMesh.visible = true;
-      this.bossAllyMeshes.forEach((mesh, index) => { mesh.visible = index !== 1; });
+      // Render the actual three deployed allies. The legacy player sprite is
+      // hidden in boss battles so it cannot duplicate the first ally.
+      this.playerMesh.visible = false;
+      this.bossAllyMeshes.forEach((mesh) => { mesh.visible = true; });
     }
     this.game.battleHud.show();
     this.refreshHud();
@@ -923,11 +923,26 @@ export class BattleScene implements Scene {
     }
 
     const isPlayer = ev.target === 'player';
-    const mesh = isPlayer ? this.playerMesh : this.enemyMesh;
-    const matHandle = isPlayer ? this.playerMatHandle : this.enemyMatHandle;
-    const targetRig = isPlayer ? this.playerRig : this.enemyRig;
-    const home = isPlayer ? PLAYER_STATION_POS : ENEMY_STATION_POS;
-    const targetCreature = this.getDisplayedCreature(ev.target);
+    const party = this.engine.state[ev.target].party;
+    const targetCreature = ev.targetUid
+      ? party.find((creature) => creature.uid === ev.targetUid) ?? this.getDisplayedCreature(ev.target)
+      : this.getDisplayedCreature(ev.target);
+    const deployed = isPlayer && this.isBoss ? this.engine.getActiveParty('player') : [];
+    const deployedIndex = isPlayer && this.isBoss
+      ? deployed.findIndex((creature) => creature.uid === targetCreature.uid)
+      : -1;
+    const mesh = deployedIndex >= 0
+      ? this.bossAllyMeshes[deployedIndex]
+      : isPlayer ? this.playerMesh : this.enemyMesh;
+    const matHandle = deployedIndex >= 0
+      ? null
+      : isPlayer ? this.playerMatHandle : this.enemyMatHandle;
+    const targetRig = deployedIndex >= 0
+      ? null
+      : isPlayer ? this.playerRig : this.enemyRig;
+    const home = mesh
+      ? { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }
+      : isPlayer ? PLAYER_STATION_POS : ENEMY_STATION_POS;
     const sfx = ev.crit
       ? 'crit'
       : ev.effectiveness >= 2
@@ -987,17 +1002,19 @@ export class BattleScene implements Scene {
           : 'normal';
     this.spawnFloatingDamage(ev.target, `-${ev.amount}`, tone);
 
-    if (isPlayer) this.playerAnimating = true;
-    else this.enemyAnimating = true;
-    matHandle.setFlash(0.92);
-    targetRig.injectImpulse(
-      isPlayer ? -0.45 : 0.45,
-      strongHit ? -0.78 : -0.48,
-      strongHit ? 0.26 : 0.15
-    );
+    if (deployedIndex < 0) {
+      if (isPlayer) this.playerAnimating = true;
+      else this.enemyAnimating = true;
+      matHandle?.setFlash(0.92);
+      targetRig?.injectImpulse(
+        isPlayer ? -0.45 : 0.45,
+        strongHit ? -0.78 : -0.48,
+        strongHit ? 0.26 : 0.15
+      );
+    }
 
-    const targetScale = isPlayer ? this.playerScale : this.enemyScale;
-    const groundedY = this.getGroundedY(ev.target);
+    const targetScale = deployedIndex >= 0 ? this.playerScale * 0.76 : isPlayer ? this.playerScale : this.enemyScale;
+    const groundedY = home.y;
     const direction = isPlayer ? -1 : 1;
     const knockback = strongHit ? 0.24 : 0.13;
     const squash = strongHit ? 0.12 : 0.06;
@@ -1014,15 +1031,17 @@ export class BattleScene implements Scene {
           targetScale * (1 - squash * env),
           1
         );
-        matHandle.setFlash(Math.max(0, 0.92 * Math.max(0, 1 - t * 2.2)));
+        matHandle?.setFlash(Math.max(0, 0.92 * Math.max(0, 1 - t * 2.2)));
       },
       () => {
         if (this.exited) return;
-        if (isPlayer) this.playerAnimating = false;
-        else this.enemyAnimating = false;
+        if (deployedIndex < 0) {
+          if (isPlayer) this.playerAnimating = false;
+          else this.enemyAnimating = false;
+        }
         mesh.position.set(home.x, groundedY, home.z);
         mesh.scale.setScalar(targetScale);
-        matHandle.setFlash(0);
+        matHandle?.setFlash(0);
         onDone();
       }
     );
