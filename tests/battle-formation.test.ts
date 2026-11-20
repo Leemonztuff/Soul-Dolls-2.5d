@@ -44,4 +44,42 @@ describe('battle formations', () => {
     expect(boss.getActivePartyIndices('player')).toEqual([0, 1, 2]);
     expect(boss.getActiveParty('player')).toHaveLength(3);
   });
+  it('resolves one action per deployed ally and only one boss action', () => {
+    const rng = createRng(27);
+    const party = [createCreature(1, 8, rng), createCreature(2, 8, rng), createCreature(3, 8, rng)];
+    const enemy = createCreature(4, 20, rng);
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+
+    const events = boss.stepBossRound([
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 1, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 2, action: { type: 'move', moveIndex: 0 } },
+    ]);
+    const moveEvents = events.filter((event) => event.type === 'move_use');
+
+    expect(moveEvents.filter((event) => event.side === 'player')).toHaveLength(3);
+    expect(moveEvents.filter((event) => event.side === 'enemy')).toHaveLength(1);
+  });
+
+  it('rejects incomplete or duplicated ally actions before resolving the round', () => {
+    const rng = createRng(28);
+    const party = [createCreature(1, 8, rng), createCreature(2, 8, rng), createCreature(3, 8, rng)];
+    const enemy = createCreature(4, 20, rng);
+    const boss = new BattleEngine(party, [enemy], [], rng, undefined, undefined, {
+      activePlayerCount: 3,
+    });
+
+    expect(() => boss.stepBossRound([
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 1, action: { type: 'move', moveIndex: 0 } },
+    ])).toThrow('Submit exactly one action for each deployed ally.');
+    expect(() => boss.stepBossRound([
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 0, action: { type: 'move', moveIndex: 0 } },
+      { partyIndex: 2, action: { type: 'move', moveIndex: 0 } },
+    ])).toThrow('Actions must match the deployed ally slots exactly.');
+  });
+
 });
