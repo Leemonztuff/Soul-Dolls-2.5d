@@ -932,7 +932,7 @@ export class BattleScene implements Scene {
       ? deployed.findIndex((creature) => creature.uid === targetCreature.uid)
       : -1;
     const mesh = deployedIndex >= 0
-      ? this.bossAllyMeshes[deployedIndex]
+      ? this.bossAllyMeshes[deployedIndex] ?? this.playerMesh
       : isPlayer ? this.playerMesh : this.enemyMesh;
     const matHandle = deployedIndex >= 0
       ? null
