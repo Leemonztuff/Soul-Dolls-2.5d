@@ -789,7 +789,11 @@ export class BattleScene implements Scene {
       this.getDisplayedCreature('enemy'),
       this.engine.state.isWild,
       playerParty,
-      enemyParty
+      enemyParty,
+      this.engine.getActiveParty('player').map((creature) => {
+        const hp = this.displayedHpByUid.get(creature.uid);
+        return hp === undefined ? creature : { ...creature, currentHp: hp };
+      })
     );
   }
 
