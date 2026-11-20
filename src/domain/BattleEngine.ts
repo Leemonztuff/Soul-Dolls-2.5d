@@ -29,6 +29,7 @@ import { applyMedicineToCreature, removeItem } from './Inventory.ts';
 import { getFirstHealthyIndex } from './Party.ts';
 import { selectActivePartyIndices } from './BattleFormation.ts';
 import { createBattleCombatantStates, getBattleCombatantState } from './BattleCombatantState.ts';
+import { planBossRound, type BattleRoundCommand } from './BattleRoundPlanner.ts';
 import { getDefaultBiomeWeather } from './TimeOfDay.ts';
 import { getTypeMultiplier } from './TypeChart.ts';
 import type {
@@ -383,6 +384,93 @@ export class BattleEngine {
     }
 
     return events;
+  }
+
+  /**
+   * Resolves one boss round: each deployed ally acts at most once and the boss
+   * receives exactly one action. This domain entry point is intentionally not
+   * wired to the scene/HUD until target selection and UID-based events land.
+   */
+  stepBossRound(
+    alliedActions: readonly { partyIndex: number; action: BattleAction }[]
+  ): BattleEvent[] {
+    if (this.state.finished) return [];
+    const deployed = this.getActivePartyIndices('player');
+    if (deployed.length < 2 || deployed.length > 3) {
+      throw new Error('Boss rounds require a deployed formation of two or three allies.');
+    }
+    if (alliedActions.length !== deployed.length) {
+      throw new Error('Submit exactly one action for each deployed ally.');
+    }
+    const submitted = new Set(alliedActions.map((entry) => entry.partyIndex));
+    if (deployed.some((index) => !submitted.has(index)) || submitted.size !== alliedActions.length) {
+      throw new Error('Actions must match the deployed ally slots exactly.');
+    }
+    if (alliedActions.some((entry) => entry.action.type !== 'move')) {
+      throw new Error('Boss rounds currently accept move actions only.');
+    }
+
+    const events: BattleEvent[] = [];
+    if (!this.entryTriggeredOnce) events.push(...this.consumeInitialEntryEvents());
+    this.state.turnCount += 1;
+    for (const side of ['player', 'enemy'] as const) {
+      for (const creature of this.getActiveParty(side)) {
+        const state = this.getCombatantState(side, creature);
+        state.flinched = false;
+        state.protected = false;
+      }
+    }
+
+    // The enemy chooses once, against the first currently deployed ally.
+    this.state.player.activeIndex = deployed.find((i) => this.state.player.party[i].currentHp > 0) ?? deployed[0];
+    const enemyAction = this.chooseEnemyAction();
+    const enemy = this.getActive('enemy');
+    const enemyMove = this.getMoveForAction('enemy', enemyAction);
+    const enemyCommand: BattleRoundCommand = {
+      side: 'enemy',
+      partyIndex: this.state.enemy.activeIndex,
+      action: enemyAction,
+      priority: enemyMove.priority + computeAbilityPriorityDelta(enemy, enemyMove),
+      speed: this.effectiveSpeed('enemy'),
+      tieBreak: this.rng.next(),
+    };
+    const alliedCommands: BattleRoundCommand[] = alliedActions.map(({ partyIndex, action }) => {
+      const ally = this.state.player.party[partyIndex];
+      const move = this.getMoveForActionForCreature(ally, action);
+      return {
+        side: 'player',
+        partyIndex,
+        action,
+        priority: move.priority + computeAbilityPriorityDelta(ally, move),
+        speed: ally.stats.spe * stageMultiplier(this.getCombatantState('player', ally).stages.spe),
+        tieBreak: this.rng.next(),
+      };
+    });
+
+    const plan = planBossRound(alliedCommands, enemyCommand);
+    for (const command of plan.commands) {
+      if (this.state.finished) break;
+      if (command.side === 'player') {
+        const ally = this.state.player.party[command.partyIndex];
+        if (!ally || ally.currentHp <= 0) continue;
+        this.state.player.activeIndex = command.partyIndex;
+        this.executeAction('player', command.action, events);
+      } else {
+        const target = deployed.find((index) => this.state.player.party[index].currentHp > 0);
+        if (target === undefined) continue;
+        this.state.player.activeIndex = target;
+        this.executeAction('enemy', command.action, events);
+      }
+    }
+
+    if (!this.state.finished) this.resolveEndOfTurn(events);
+    return events;
+  }
+
+  private getMoveForActionForCreature(creature: CreatureInstance, action: BattleAction): MoveDef {
+    const index = action.type === 'move' ? action.moveIndex : 0;
+    const slot = creature.moves[index] ?? creature.moves[0];
+    return getMove(slot ? slot.moveId : 'placaje');
   }
 
   forcePlayerSwitch(partyIndex: number): BattleEvent[] {
