@@ -387,9 +387,9 @@ export class BattleEngine {
   }
 
   /**
-   * Resolves one boss round: each deployed ally acts at most once and the boss
-   * receives exactly one action. This domain entry point is intentionally not
-   * wired to the scene/HUD until target selection and UID-based events land.
+   * Resolves one boss round: each deployed ally submits one move and the boss
+   * receives exactly one action. The scene collects ally choices before calling
+   * this method; commands then resolve by priority, speed and stable tie-break.
    */
   stepBossRound(
     alliedActions: readonly { partyIndex: number; action: BattleAction }[]
