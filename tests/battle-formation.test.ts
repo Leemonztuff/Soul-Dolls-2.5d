@@ -47,6 +47,7 @@ describe('battle formations', () => {
   it('resolves one action per deployed ally and only one boss action', () => {
     const rng = createRng(27);
     const party = [createCreature(1, 8, rng), createCreature(2, 8, rng), createCreature(3, 8, rng)];
+    for (const ally of party) ally.moves = [{ moveId: 'placaje', pp: 35, maxPp: 35 }];
     const enemy = createCreature(4, 20, rng);
     enemy.stats.hp = 9999;
     enemy.currentHp = 9999;
