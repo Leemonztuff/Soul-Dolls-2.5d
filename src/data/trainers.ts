@@ -1,6 +1,18 @@
 import type { TrainerDef } from '../domain/types.ts';
 
 export const TRAINERS: Record<string, TrainerDef> = {
+  guardian_eco: {
+    id: 'guardian_eco',
+    name: 'Guardián del Eco',
+    title: 'Custodio de la Cueva',
+    role: 'leader',
+    isBoss: true,
+    rewardMoney: 1800,
+    introText: 'Las almas que llegan hasta aquí deben demostrar su vínculo. ¡Prepárate para enfrentar el poder del Eco!',
+    defeatText: 'El Eco reconoce tu fuerza. Has superado la prueba de la Cueva.',
+    setsFlag: 'guardian_eco_defeated',
+    party: [{ speciesId: 42, level: 20 }],
+  },
   ruta1_scout: {
     id: 'ruta1_scout',
     name: 'Lucas',
