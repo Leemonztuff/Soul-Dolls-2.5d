@@ -909,6 +909,17 @@ export class BattleScene implements Scene {
       this.promptForcedSwitch();
       return;
     }
+    const deployedSet = new Set(deployedIndices);
+    const hasHealthyReserve = this.engine.state.player.party.some(
+      (creature, partyIndex) => !deployedSet.has(partyIndex) && creature.currentHp > 0
+    );
+    const hasFaintedAlly = deployedIndices.some(
+      (partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp <= 0
+    );
+    if (hasFaintedAlly && hasHealthyReserve) {
+      this.promptBossReplacement();
+      return;
+    }
     if (!deployedIndices.some((partyIndex) => this.engine.state.player.party[partyIndex]?.currentHp > 0)) {
       this.promptBossReplacement();
       return;
@@ -989,7 +1000,7 @@ export class BattleScene implements Scene {
           this.pumpEvents();
         },
       },
-      () => this.promptBossReplacement()
+      () => {}
     );
   }
 
