@@ -28,6 +28,7 @@ import { computeHeldStatMultiplier, getHeldItemDef } from './HeldItems.ts';
 import { applyMedicineToCreature, removeItem } from './Inventory.ts';
 import { getFirstHealthyIndex } from './Party.ts';
 import { selectActivePartyIndices } from './BattleFormation.ts';
+import { createBattleCombatantStates } from './BattleCombatantState.ts';
 import { getDefaultBiomeWeather } from './TimeOfDay.ts';
 import { getTypeMultiplier } from './TypeChart.ts';
 import type {
@@ -84,12 +85,14 @@ export class BattleEngine {
         party: playerParty,
         activeIndex: pIdx,
         activeIndices: selectActivePartyIndices(playerParty, extra?.activePlayerCount ?? 1),
+        combatants: createBattleCombatantStates(playerParty),
         stages: createDefaultStages(),
         flinched: false,
       },
       enemy: {
         party: enemyParty,
         activeIndex: eIdx,
+        combatants: createBattleCombatantStates(enemyParty),
         stages: createDefaultStages(),
         flinched: false,
       },
