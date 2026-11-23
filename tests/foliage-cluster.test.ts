@@ -198,4 +198,78 @@ describe('FoliageClusterPlanner', () => {
       ).toBe(true);
     }
   });
+
+  it('respeta bioma, snowLine, treeKinds y excluye cuevas e interiores (AUD-03)', () => {
+    const caveMap = makeMap({ width: 32, height: 32 });
+    caveMap.biome = 'cave';
+    caveMap.music = 'cave';
+    caveMap.decoration.treeDensity = 0.08;
+    const cavePlan = planFoliageClusters(caveMap, { seed: 7, maxClusters: 10, respectDensity: true });
+    expect(cavePlan.clusters).toHaveLength(0);
+
+    const meadowLowland = makeMap({ width: 36, height: 36 });
+    meadowLowland.biome = 'meadow';
+    meadowLowland.snowLine = 6;
+    meadowLowland.decoration.treeDensity = 0.05;
+    meadowLowland.decoration.treeKinds = ['oak', 'birch', 'pine'];
+    const lowPlan = planFoliageClusters(meadowLowland, {
+      seed: 1234,
+      maxClusters: 12,
+      respectDensity: true,
+    });
+    expect(lowPlan.clusters.length).toBeGreaterThan(0);
+    for (const c of lowPlan.clusters) {
+      for (const p of c.props) {
+        expect(['snow_pine', 'crystal', 'bush_arcane']).not.toContain(p.kind);
+      }
+    }
+
+    const arenaLowMap = makeMap({ width: 24, height: 24, seed: 77 });
+    arenaLowMap.biome = 'arena';
+    arenaLowMap.snowLine = 6;
+    arenaLowMap.decoration.treeDensity = 0.25;
+    arenaLowMap.decoration.treeKinds = ['pine', 'snow_pine'];
+    const arenaLowPlan = planFoliageClusters(arenaLowMap, { seed: 77, maxClusters: 10 });
+    expect(arenaLowPlan.clusters.length).toBeGreaterThan(0);
+    for (const p of [...arenaLowPlan.solidProps, ...arenaLowPlan.visualProps]) {
+      expect(p.kind).not.toBe('snow_pine');
+    }
+  });
+
+  it('rechaza laderas pronunciadas (maxDiff > 1) y respeta bordes de agua (AUD-04)', () => {
+    const map = makeMap({ width: 24, height: 24 });
+    // Crea una pared con desnivel brusco (altura 4 rodeada de 0) en todo el centro
+    for (let z = 4; z < 20; z++) {
+      map.heights[z] = map.heights[z]
+        .split('')
+        .map((_, x) => (x >= 4 && x < 20 && z >= 4 && z < 20 ? (x === 12 ? '4' : '0') : '0'))
+        .join('');
+    }
+    const plan = planFoliageClusters(map, { seed: 99, maxClusters: 12 });
+    for (const c of plan.clusters) {
+      for (const p of c.props) {
+        const rx = Math.round(p.x);
+        const rz = Math.round(p.z);
+        expect(rx).not.toBe(12);
+        expect(rx).not.toBe(11);
+        expect(rx).not.toBe(13);
+        expect(rz).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it('asigna recetas diferenciadas por clusterKind (riverside vs rocky) según el entorno (AUD-13)', () => {
+    const map = makeMap({ width: 28, height: 28 });
+    map.legend['~'] = { tile: 'water', solid: true };
+    // Colocar un río por z=12..14
+    for (let z = 12; z <= 14; z++) {
+      map.grid[z] = '~'.repeat(28);
+    }
+    const riverPlan = planFoliageClusters(map, { seed: 55, maxClusters: 12 });
+    const riverside = riverPlan.clusters.filter((c) => c.kind === 'riverside');
+    expect(riverside.length).toBeGreaterThan(0);
+    for (const rc of riverside) {
+      expect(rc.props.some((p) => p.kind === 'flower_patch')).toBe(true);
+    }
+  });
 });

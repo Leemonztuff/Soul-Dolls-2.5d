@@ -157,9 +157,10 @@ export function attachTerrainDioramaShader<T extends THREE.Material>(
            float p3N3 = cliffHash12(p3PixelWp * 13.7);
            float p3Organic = (p3N1 * 0.58 + p3N2 * 0.30 + p3N3 * 0.12) - 0.5;
 
-           float p3Contrast = clamp(vSurfaceBlend.w, 0.7, 1.25);
-           float p3HalfWin = clamp(0.16 / p3Contrast, 0.11, 0.19);
-           float p3Field = vSurfaceBlend.y + vSurfaceBlend.z * p3Organic * 0.56;
+           float p3Contrast = clamp(vSurfaceBlend.w, 0.7, 2.0);
+           float p3HalfWin = clamp(0.16 / p3Contrast, 0.07, 0.19);
+           float p3NoiseScale = 0.56 / mix(1.0, p3Contrast, 0.4);
+           float p3Field = vSurfaceBlend.y + vSurfaceBlend.z * p3Organic * p3NoiseScale;
            p3BlendAlpha = smoothstep(0.5 - p3HalfWin, 0.5 + p3HalfWin, p3Field);
 
            if (p3BlendAlpha > 0.001) {

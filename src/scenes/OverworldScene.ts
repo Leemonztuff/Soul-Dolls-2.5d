@@ -141,6 +141,7 @@ import {
   buildTerrainChunks,
   updateTerrainWaterFrame,
   updateVisibleTerrainChunks,
+  type TerrainBuildArtifacts,
   type TerrainChunk,
 } from '../engine/TerrainMesher.ts';
 import { WaterSurface } from '../engine/WaterSurface.ts';
@@ -1017,10 +1018,16 @@ export class OverworldScene implements Scene {
         const allowTree = !treeExcluded.has(key) && !isRoadNeighbor;
 
         if (dec.treeKinds.length > 0 && roll < dec.treeDensity && allowTree) {
-          if (map.snowLine !== undefined && hC >= map.snowLine && dec.treeKinds.includes('snow_pine')) {
+          const isSnowZone =
+            map.biome === 'snow' || (map.snowLine !== undefined && hC >= map.snowLine);
+          if (isSnowZone && dec.treeKinds.includes('snow_pine')) {
             chosen = 'snow_pine';
           } else {
-            chosen = rng.pick(dec.treeKinds);
+            const nonSnowPool = isSnowZone
+              ? dec.treeKinds
+              : dec.treeKinds.filter((k) => k !== 'snow_pine');
+            const treePool: readonly PropKind[] = nonSnowPool.length > 0 ? nonSnowPool : ['pine'];
+            chosen = rng.pick(treePool);
             if (chosen === 'mushroom_tree') {
               chosen = rng.next() < 0.55 ? 'mushroom_tree' : 'mushroom_tree_arcane';
             }
@@ -1075,6 +1082,7 @@ export class OverworldScene implements Scene {
       seed: map.decoration.seed ^ 0x464f4c49,
       maxClusters: Math.ceil((map.grid.length * map.grid[0].length) / 300),
       occupied,
+      respectDensity: true,
     });
     for (const prop of clusterPlan.solidProps) {
       placements.push({
@@ -1110,9 +1118,11 @@ export class OverworldScene implements Scene {
     const rng = createRng(map.decoration.seed ^ 0x424f5244);
     const margin = 14;
     const outdoorTrees: PropKind[] =
-      map.biome === 'mountain' || map.biome === 'arena'
-        ? ['pine', 'snow_pine', 'oak']
-        : ['pine', 'oak', 'birch'];
+      map.biome === 'snow'
+        ? ['snow_pine', 'pine']
+        : map.biome === 'mountain' || map.biome === 'arena'
+          ? ['pine', 'oak']
+          : ['pine', 'oak', 'birch'];
 
     for (let z = -margin; z < height + margin; z++) {
       for (let x = -margin; x < width + margin; x++) {
@@ -1327,8 +1337,11 @@ export class OverworldScene implements Scene {
     this.mapDisposables.track(structureAtlasMat);
     this.mapDisposables.track(grassMat);
 
-    // 1. Heightfield terrain chunks + seamless outer border apron
-    this.chunks = buildTerrainChunks(map, terrainAtlasMat, grassMat);
+    // 1. Heightfield terrain chunks + seamless outer border apron (capturing P1/P2/P3 shared artifacts)
+    const terrainArtifacts: Partial<TerrainBuildArtifacts> = {};
+    this.chunks = buildTerrainChunks(map, terrainAtlasMat, grassMat, {
+      artifactsOut: terrainArtifacts,
+    });
     for (const chunk of this.chunks) {
       this.mapDisposables.track(chunk.mesh.geometry);
       this.scene.add(chunk.mesh);
@@ -1338,7 +1351,12 @@ export class OverworldScene implements Scene {
       this.mapDisposables.track(borderApron.geometry);
       this.scene.add(borderApron);
     }
-    this.waterSurface = new WaterSurface(this.scene, this.mapDisposables, map);
+    this.waterSurface = new WaterSurface(
+      this.scene,
+      this.mapDisposables,
+      map,
+      terrainArtifacts.contourAnalysis ?? null
+    );
 
     if (map.isInterior) {
       const interiorWalls = buildInteriorWallsMesh(
@@ -1425,7 +1443,10 @@ export class OverworldScene implements Scene {
     const cliffOrnamentMat = createCliffOrnamentMaterial(cliffOrnamentTex);
     this.mapDisposables.track(cliffOrnamentTex);
     this.mapDisposables.track(cliffOrnamentMat);
-    const cliffOrnamentsGroup = buildCliffOrnamentsMesh(map, cliffOrnamentMat);
+    const cliffOrnamentsGroup = buildCliffOrnamentsMesh(map, cliffOrnamentMat, {
+      contourAnalysis: terrainArtifacts.contourAnalysis,
+      anchors: terrainArtifacts.ornamentAnchors,
+    });
     if (cliffOrnamentsGroup) {
       cliffOrnamentsGroup.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
@@ -2081,12 +2102,14 @@ export class OverworldScene implements Scene {
   private stepSimulation(dt: number): void {
     this.game.saveData.stats.playTimeSec += dt;
 
-    // 2-frame water animation
+    // 2-frame water bed fallback animation (only needed if WaterSurface mesh is inactive)
     this.waterTimer += dt;
     if (this.waterTimer >= 0.45) {
       this.waterTimer = 0;
       this.waterFrame = this.waterFrame === 0 ? 1 : 0;
-      updateTerrainWaterFrame(this.chunks, this.waterFrame);
+      if (!this.waterSurface?.mesh) {
+        updateTerrainWaterFrame(this.chunks, this.waterFrame);
+      }
     }
 
     this.game.dialog.update(dt, this.game.input);

@@ -5,19 +5,20 @@ import { describe, expect, it, beforeEach } from 'vitest';
 let AssetProviderCtor: new () => ProceduralAssetProvider;
 let THREE: typeof import('three');
 
-const makeMockCanvas = (): HTMLCanvasElement =>
-  ({
+const makeMockCanvas = (): HTMLCanvasElement => {
+  const ctx2d = {
+    fillRect: () => {},
+    clearRect: () => {},
+    drawImage: () => {},
+    imageSmoothingEnabled: false,
+    putImageData: () => {},
+  };
+  return {
     width: 64,
     height: 64,
-    getContext: () =>
-      ({
-        fillRect: () => {},
-        clearRect: () => {},
-        drawImage: () => {},
-        imageSmoothingEnabled: false,
-        putImageData: () => {},
-      } as any),
-  } as unknown as HTMLCanvasElement);
+    getContext: () => ctx2d as any,
+  } as unknown as HTMLCanvasElement;
+};
 
 beforeEach(async () => {
   // Entorno de navegador mínimo para Canvas/Image (Vitest corre en Node por defecto).
@@ -86,5 +87,44 @@ describe('AssetProvider getTerrainLayerTexture / getTerrainLayerNormalTexture', 
     provider.dispose();
     const b = provider.getTerrainLayerTexture('snow');
     expect(b).not.toBe(a);
+  });
+
+  it('refresca las texturas cacheadas de terrainLayer cuando cargan las hojas de tiles asíncronas (AUD-08)', () => {
+    const createdImages: Array<{ src: string; onload: (() => void) | null }> = [];
+    const PrevImage = (globalThis as any).Image;
+    (globalThis as any).Image = class extends PrevImage {
+      constructor() {
+        super();
+        createdImages.push(this as any);
+      }
+    };
+
+    const provider = new AssetProviderCtor();
+    const cachedAlbedo = provider.getTerrainLayerTexture('cliff_rock');
+    const cachedNormal = provider.getTerrainLayerNormalTexture('cliff_rock');
+
+    let drawCount = 0;
+    const albedoCtx = (cachedAlbedo.image as HTMLCanvasElement).getContext('2d')!;
+    const normalCtx = (cachedNormal.image as HTMLCanvasElement).getContext('2d')!;
+    const origDrawA = albedoCtx.drawImage;
+    const origDrawN = normalCtx.drawImage;
+    albedoCtx.drawImage = (...args: any[]) => {
+      drawCount++;
+      return (origDrawA as any).apply(albedoCtx, args);
+    };
+    normalCtx.drawImage = (...args: any[]) => {
+      drawCount++;
+      return (origDrawN as any).apply(normalCtx, args);
+    };
+
+    const albedoSheet = createdImages.find((im) => im.src.endsWith('/assets/tiles_5x5_albedo.png'));
+    const normalSheet = createdImages.find((im) => im.src.endsWith('/assets/tiles_5x5_normal.png'));
+    expect(albedoSheet?.onload).toBeTypeOf('function');
+    expect(normalSheet?.onload).toBeTypeOf('function');
+
+    albedoSheet!.onload!();
+    normalSheet!.onload!();
+    expect(drawCount).toBeGreaterThanOrEqual(2);
+    provider.dispose();
   });
 });

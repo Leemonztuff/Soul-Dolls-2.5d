@@ -485,6 +485,20 @@ export class ProceduralAssetProvider implements AssetProvider {
     this.tileAtlasNormal.needsUpdate = true;
   }
 
+  private refreshTerrainLayerTextures(isNormal: boolean): void {
+    const cache = isNormal ? this.terrainLayerNormalCache : this.terrainLayerCache;
+    for (const [key, tex] of cache.entries()) {
+      const srcCanvas = this.createTerrainLayerCanvas(key, isNormal);
+      const dstCanvas = tex.image as HTMLCanvasElement;
+      const ctx = dstCanvas?.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, dstCanvas.width, dstCanvas.height);
+        ctx.drawImage(srcCanvas, 0, 0, dstCanvas.width, dstCanvas.height);
+        tex.needsUpdate = true;
+      }
+    }
+  }
+
   private preloadExternalProps(): void {
     if (typeof Image === 'undefined') return;
 
@@ -539,6 +553,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       if (this.disposed) return;
       this.tileSheetAlbedoImg = albedoSheetImg;
       this.refreshTileAtlasAlbedo();
+      this.refreshTerrainLayerTextures(false);
       if (this.grassTexture) {
         this.stampSheetCellToTexture(this.grassTexture, albedoSheetImg, 0, 0, 2);
       }
@@ -558,6 +573,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       if (this.disposed) return;
       this.tileExtraAlbedoImg = extraAlbedoImg;
       this.refreshTileAtlasAlbedo();
+      this.refreshTerrainLayerTextures(false);
     };
     extraAlbedoImg.src = '/assets/tiles_extra_albedo.png';
 
@@ -566,6 +582,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       if (this.disposed) return;
       this.tileSheetNormalImg = normalSheetImg;
       this.refreshTileAtlasNormal();
+      this.refreshTerrainLayerTextures(true);
       if (this.grassNormalTexture) {
         this.stampSheetCellToTexture(this.grassNormalTexture, normalSheetImg, 0, 0, 2);
       }
@@ -585,6 +602,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       if (this.disposed) return;
       this.tileExtraNormalImg = extraNormalImg;
       this.refreshTileAtlasNormal();
+      this.refreshTerrainLayerTextures(true);
     };
     extraNormalImg.src = '/assets/tiles_extra_normal.png';
 

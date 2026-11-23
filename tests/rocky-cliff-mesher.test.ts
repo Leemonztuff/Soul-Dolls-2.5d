@@ -322,4 +322,84 @@ describe('P2 RockyCliffMesher — Stratification, Overhangs, Talus & Continuity'
     ornMat.dispose();
     dummyTex.dispose();
   });
+
+  it('seals cliff endpoint junctions with unequal drop heights and reuses precomputed ornament anchors (AUD-06, AUD-07)', () => {
+    const stepMap = makeTallCliffMap('mountain');
+    // Tile (4,3) is level 3 between level 4 (north/east) and level 1/2 (west/south), forcing mismatched drops on shared vertices
+    const analysis = analyzeTerrainContours(stepMap);
+    const ctx = new RockyCliffBuildContext(stepMap, analysis);
+
+    const mismatchedJunctions: Array<{ key: string; xs: Set<string>; zs: Set<string>; yBots: Set<string> }> = [];
+    for (const contour of analysis.tileContours) {
+      if (contour.rimSegments.length === 0) continue;
+      for (const seg of contour.rimSegments) {
+        const buf = emptyBuffers();
+        appendTileRockyCliffs(ctx, { ...contour, rimSegments: [seg] }, 'cliff_rock', buf);
+        for (const [epX, epZ] of [
+          [seg.ax, seg.az],
+          [seg.bx, seg.bz],
+        ] as const) {
+          const c = ctx.getVertexConstraint(epX, epZ, contour.level);
+          if (c?.dropMismatch) {
+            let entry = mismatchedJunctions.find((m) => m.key === `${epX.toFixed(3)},${epZ.toFixed(3)},${contour.level}`);
+            if (!entry) {
+              entry = {
+                key: `${epX.toFixed(3)},${epZ.toFixed(3)},${contour.level}`,
+                xs: new Set(),
+                zs: new Set(),
+                yBots: new Set(),
+              };
+              mismatchedJunctions.push(entry);
+            }
+            entry.yBots.add(seg.yBottom.toFixed(3));
+            for (let v = 0; v < buf.positions.length / 3; v++) {
+              const px = buf.positions[v * 3];
+              const pz = buf.positions[v * 3 + 2];
+              if (Math.hypot(px - epX, pz - epZ) < 0.25) {
+                entry.xs.add(px.toFixed(4));
+                entry.zs.add(pz.toFixed(4));
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(mismatchedJunctions.length).toBeGreaterThan(0);
+    for (const j of mismatchedJunctions) {
+      if (j.yBots.size > 1) {
+        expect(j.xs.size).toBe(1);
+        expect(j.zs.size).toBe(1);
+      }
+    }
+
+    // Check shared terrain artifacts reuse matches direct ornament build identically
+    const mat = new THREE.MeshStandardMaterial();
+    const artifacts: {
+      contourAnalysis?: ReturnType<typeof analyzeTerrainContours> | null;
+      ornamentAnchors?: ReturnType<typeof extractRockyCliffOrnamentAnchors>;
+    } = {};
+    const chunks = buildTerrainChunks(stepMap, mat, undefined, { artifactsOut: artifacts });
+    expect(artifacts.contourAnalysis).toBeTruthy();
+    expect(artifacts.ornamentAnchors!.length).toBeGreaterThan(0);
+
+    const dummyTex = new THREE.DataTexture(new Uint8Array(16), 2, 2) as unknown as THREE.CanvasTexture;
+    const ornMat = createCliffOrnamentMaterial(dummyTex);
+    const fromDirect = buildCliffOrnamentsMesh(stepMap, ornMat);
+    const fromPrecomputed = buildCliffOrnamentsMesh(stepMap, ornMat, {
+      contourAnalysis: artifacts.contourAnalysis,
+      anchors: artifacts.ornamentAnchors,
+    });
+    expect(fromDirect).not.toBeNull();
+    expect(fromPrecomputed).not.toBeNull();
+    const p1 = (fromDirect!.children[0] as THREE.Mesh).geometry.getAttribute('position') as THREE.BufferAttribute;
+    const p2 = (fromPrecomputed!.children[0] as THREE.Mesh).geometry.getAttribute('position') as THREE.BufferAttribute;
+    expect(p2.count).toBe(p1.count);
+
+    for (const c of chunks) c.mesh.geometry.dispose();
+    (fromDirect!.children[0] as THREE.Mesh).geometry.dispose();
+    (fromPrecomputed!.children[0] as THREE.Mesh).geometry.dispose();
+    ornMat.dispose();
+    dummyTex.dispose();
+    mat.dispose();
+  });
 });

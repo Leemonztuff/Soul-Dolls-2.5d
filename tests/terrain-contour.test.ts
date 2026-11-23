@@ -388,4 +388,119 @@ describe('P1 Organic Plateaus & TerrainContourAnalyzer', () => {
     // Building remains impassable
     expect(isTileWalkable(MAP_TEST_RIVERBANK, 7, 25, 7, 24)).toBe(false);
   });
+
+  it('unlocks natural land-water shorelines for organic contouring while keeping architectural water canals locked (AUD-02)', () => {
+    const map = makeGridMap(
+      [
+        '.......',
+        '..~~~..',
+        '..~~~..',
+        '..~~~..',
+        '.......',
+      ],
+      [
+        '1111111',
+        '1100011',
+        '1100011',
+        '1100011',
+        '1111111',
+      ]
+    );
+    const analysis = analyzeTerrainContours(map);
+    // Natural grass bank tile (1,2) bordering river water (2,2) deforms organically along the east water edge
+    const westBank = analysis.tileContours[2 * 7 + 1];
+    expect(westBank.isPlainInterior).toBe(false);
+    expect(westBank.lowerFloorQuads.length + westBank.lowerFloorTris.length).toBeGreaterThan(0);
+    const allWaterPocket = [...westBank.lowerFloorQuads, ...westBank.lowerFloorTris].every(
+      (p) => p.isWaterShore && p.bottomLevel === 0
+    );
+    expect(allWaterPocket).toBe(true);
+    // Water tile itself retains isProtected = true
+    expect(analysis.tileContours[2 * 7 + 2].isProtected).toBe(true);
+
+    // Architectural cobble border keeps canal corners orthogonal
+    const canalMap = makeGridMap(
+      [
+        '=======',
+        '==~~~==',
+        '==~~~==',
+        '=======',
+      ],
+      [
+        '1111111',
+        '1100011',
+        '1100011',
+        '1111111',
+      ]
+    );
+    const canalAnalysis = analyzeTerrainContours(canalMap);
+    expect(canalAnalysis.tileContours[1 * 7 + 1].lowerFloorQuads).toHaveLength(0);
+    expect(canalAnalysis.tileContours[1 * 7 + 1].lowerFloorTris).toHaveLength(0);
+  });
+
+  it('produces symmetric shared vertex heights on concave L-shaped water beds and supports single-chunk rebuilds (AUD-05, AUD-15)', () => {
+    const lWaterMap = makeGridMap(
+      [
+        '.....',
+        '.~~~.',
+        '.~~..',
+        '.~...',
+        '.....',
+      ],
+      [
+        '11111',
+        '10001',
+        '10011',
+        '10111',
+        '11111',
+      ]
+    );
+    const mat = new THREE.MeshStandardMaterial();
+    const grassMat = new THREE.MeshStandardMaterial();
+    const chunks = buildTerrainChunks(lWaterMap, mat, grassMat, { organic: false });
+    expect(chunks).toHaveLength(1);
+    const pos = chunks[0].mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const norm = chunks[0].mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    // Check concave L-shaped interior water corners where 3 water tiles meet 1 land tile
+    for (const [cx, cz] of [
+      [2.5, 1.5],
+      [1.5, 2.5],
+    ] as const) {
+      const waterBedYs: number[] = [];
+      const floorYs: number[] = [];
+      for (let i = 0; i < pos.count; i++) {
+        if (Math.abs(pos.getX(i) - cx) < 1e-5 && Math.abs(pos.getZ(i) - cz) < 1e-5 && norm.getY(i) > 0.5) {
+          const y = pos.getY(i);
+          floorYs.push(y);
+          if (y < 0.25) waterBedYs.push(y);
+        }
+      }
+      expect(waterBedYs).toHaveLength(3);
+      expect(new Set(waterBedYs.map((y) => y.toFixed(4))).size).toBe(1);
+      expect(new Set(floorYs.map((y) => y.toFixed(4))).size).toBe(2);
+    }
+    chunks[0].mesh.geometry.dispose();
+
+    // Localized single-chunk rebuild matches full build for that chunk
+    const artifacts: { contourAnalysis?: ReturnType<typeof analyzeTerrainContours> | null } = {};
+    const fullChunks = buildTerrainChunks(MAP_TEST_RIVERBANK, mat, grassMat, {
+      artifactsOut: artifacts,
+    });
+    const singleChunk = buildTerrainChunks(MAP_TEST_RIVERBANK, mat, grassMat, {
+      precomputed: { contourAnalysis: artifacts.contourAnalysis },
+      chunkKeys: ['1,0'],
+    });
+    expect(singleChunk).toHaveLength(1);
+    expect(singleChunk[0].cx).toBe(1);
+    expect(singleChunk[0].cz).toBe(0);
+    const full10 = fullChunks.find((c) => c.cx === 1 && c.cz === 0)!;
+    expect((singleChunk[0].mesh.geometry.getAttribute('position') as THREE.BufferAttribute).count).toBe(
+      (full10.mesh.geometry.getAttribute('position') as THREE.BufferAttribute).count
+    );
+
+    singleChunk[0].mesh.geometry.dispose();
+    for (const c of fullChunks) c.mesh.geometry.dispose();
+    mat.dispose();
+    grassMat.dispose();
+  });
 });

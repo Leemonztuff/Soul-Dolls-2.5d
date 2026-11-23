@@ -14,7 +14,10 @@ import {
   extractRockyCliffOrnamentAnchors,
   type CliffOrnamentAnchor,
 } from './RockyCliffMesher.ts';
-import { analyzeTerrainContours } from './TerrainContourAnalyzer.ts';
+import {
+  analyzeTerrainContours,
+  type TerrainContourAnalysis,
+} from './TerrainContourAnalyzer.ts';
 import { detectCliffBoundaries } from './TerrainMesher.ts';
 
 export type CliffOrnamentKind =
@@ -307,12 +310,20 @@ function selectAnchorOrnamentKind(
 
 export function buildCliffOrnamentsMesh(
   map: MapDef,
-  material?: THREE.Material
+  material?: THREE.Material,
+  precomputed?: {
+    contourAnalysis?: TerrainContourAnalysis | null;
+    anchors?: readonly CliffOrnamentAnchor[];
+  }
 ): THREE.Group | null {
   if (map.isInterior) return null;
 
-  const contourAnalysis = analyzeTerrainContours(map);
-  const anchors = extractRockyCliffOrnamentAnchors(map, contourAnalysis);
+  const anchors = precomputed?.anchors
+    ? precomputed.anchors
+    : extractRockyCliffOrnamentAnchors(
+        map,
+        precomputed?.contourAnalysis ?? analyzeTerrainContours(map)
+      );
   if (anchors.length === 0) return null;
 
   const seed = map.decoration?.seed ?? 17;

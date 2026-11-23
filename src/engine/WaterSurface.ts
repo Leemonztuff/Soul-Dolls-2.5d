@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { FxQualityTier } from '../domain/FxPool.ts';
-import { getTileWorldY } from '../domain/TerrainRules.ts';
+import { getTileWorldY, HEIGHT_UNIT } from '../domain/TerrainRules.ts';
 import type { MapDef } from '../domain/types.ts';
+import { DIORAMA_RENDER_ORDER } from './DioramaLayers.ts';
 import type { DisposableRegistry } from './Disposables.ts';
+import type { TerrainContourAnalysis } from './TerrainContourAnalyzer.ts';
 
 function isWaterTile(map: MapDef, x: number, z: number): boolean {
   const row = map.grid[z];
@@ -48,7 +50,8 @@ export class WaterSurface {
   constructor(
     scene: THREE.Scene,
     disposables: DisposableRegistry,
-    map: MapDef
+    map: MapDef,
+    contourAnalysis: TerrainContourAnalysis | null = null
   ) {
     const h = map.grid.length;
     const w = map.grid[0]?.length ?? 0;
@@ -64,30 +67,19 @@ export class WaterSurface {
 
     if (waterCells.length === 0) return;
 
-    const n = waterCells.length;
-    const positions = new Float32Array(n * 4 * 3);
-    const uvs = new Float32Array(n * 4 * 2);
-    const shores = new Float32Array(n * 4);
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const shores: number[] = [];
     const indices: number[] = [];
-
-    let vPtr = 0;
-    let uvPtr = 0;
-    let sPtr = 0;
     let base = 0;
 
     // Corner shore factor: valor continuo en [0, 1] que representa qué tan cerca está
     // esta esquina del agua de una orilla (tierra no-agua). 0 = agua profunda rodeada
-    // de agua, 1 = esquina completamente en tierra. Se calcula como fracción ponderada
-    // de vecinos no-agua en un cruz de 5 tiles alrededor de la esquina, lo que da
-    // transiciones suaves de espuma y profundidad en la ribera sin cambiar la geometría
-    // de quads 1×1 del agua.
+    // de agua, 1 = esquina completamente en tierra.
     const cornerShore = (x: number, z: number, dx: number, dz: number): number => {
-      // Vecinos ortogonales inmediatos en las direcciones de la esquina
       const orthA = !isWaterTile(map, x + dx, z);
       const orthB = !isWaterTile(map, x, z + dz);
-      // Diagonal en la dirección de la esquina
       const diag = !isWaterTile(map, x + dx, z + dz);
-      // Vecinos ortogonales opuestos para contexto de orilla amplia
       const orthOppA = !isWaterTile(map, x - dx, z);
       const orthOppB = !isWaterTile(map, x, z - dz);
 
@@ -99,13 +91,25 @@ export class WaterSurface {
         (orthOppB ? 1 : 0);
 
       if (nonWaterCount === 0) return 0.0;
-
-      // Fracción continua entre 0.25 y 1.0; 2 no-agua ≈ 0.55 (mismo orden que el valor
-      // diagonal previo, preservando el aspecto de ribera existente en mapas actuales).
       return 0.25 + (nonWaterCount / 5) * 0.75;
     };
 
-    for (let i = 0; i < n; i++) {
+    const cornerShoreAtWorld = (wx: number, wz: number): number => {
+      const cx = Math.round(wx - 0.5);
+      const cz = Math.round(wz - 0.5);
+      let nonWater = 0;
+      for (let dz = 0; dz <= 1; dz++) {
+        for (let dx = 0; dx <= 1; dx++) {
+          if (!isWaterTile(map, cx + dx, cz + dz)) {
+            nonWater++;
+          }
+        }
+      }
+      if (nonWater === 0) return 0.0;
+      return 0.45 + (nonWater / 4) * 0.55;
+    };
+
+    for (let i = 0; i < waterCells.length; i++) {
       const { x, y, z } = waterCells[i];
       const x0 = x - 0.5;
       const x1 = x + 0.5;
@@ -113,29 +117,53 @@ export class WaterSurface {
       const z1 = z + 0.5;
 
       // BL (x0,z1), BR (x1,z1), TR (x1,z0), TL (x0,z0)
-      positions[vPtr++] = x0; positions[vPtr++] = y; positions[vPtr++] = z1;
-      positions[vPtr++] = x1; positions[vPtr++] = y; positions[vPtr++] = z1;
-      positions[vPtr++] = x1; positions[vPtr++] = y; positions[vPtr++] = z0;
-      positions[vPtr++] = x0; positions[vPtr++] = y; positions[vPtr++] = z0;
-
-      uvs[uvPtr++] = x0; uvs[uvPtr++] = z1;
-      uvs[uvPtr++] = x1; uvs[uvPtr++] = z1;
-      uvs[uvPtr++] = x1; uvs[uvPtr++] = z0;
-      uvs[uvPtr++] = x0; uvs[uvPtr++] = z0;
-
-      shores[sPtr++] = cornerShore(x, z, -1, 1);
-      shores[sPtr++] = cornerShore(x, z, 1, 1);
-      shores[sPtr++] = cornerShore(x, z, 1, -1);
-      shores[sPtr++] = cornerShore(x, z, -1, -1);
-
+      positions.push(x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0);
+      uvs.push(x0, z1, x1, z1, x1, z0, x0, z0);
+      shores.push(
+        cornerShore(x, z, -1, 1),
+        cornerShore(x, z, 1, 1),
+        cornerShore(x, z, 1, -1),
+        cornerShore(x, z, -1, -1)
+      );
       indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
       base += 4;
     }
 
+    // P4: Fill organic shoreline pockets uncovered by P1 plateau retraction/chamfer/fillet
+    // so water visually meets the sculpted curved land bank seamlessly without gaps.
+    if (contourAnalysis) {
+      for (const contour of contourAnalysis.tileContours) {
+        for (const q of contour.lowerFloorQuads) {
+          if (!q.isWaterShore) continue;
+          const wy = q.bottomLevel * HEIGHT_UNIT + 0.045;
+          for (let k = 0; k < 4; k++) {
+            const [px, pz] = q.points[k];
+            positions.push(px, wy, pz);
+            uvs.push(px, pz);
+            shores.push(q.creviceMask[k] > 0.5 ? 1.0 : cornerShoreAtWorld(px, pz));
+          }
+          indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+          base += 4;
+        }
+        for (const t of contour.lowerFloorTris) {
+          if (!t.isWaterShore) continue;
+          const wy = t.bottomLevel * HEIGHT_UNIT + 0.045;
+          for (let k = 0; k < 3; k++) {
+            const [px, pz] = t.points[k];
+            positions.push(px, wy, pz);
+            uvs.push(px, pz);
+            shores.push(t.creviceMask[k] > 0.5 ? 1.0 : cornerShoreAtWorld(px, pz));
+          }
+          indices.push(base, base + 1, base + 2);
+          base += 3;
+        }
+      }
+    }
+
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-    geo.setAttribute('aShore', new THREE.BufferAttribute(shores, 1));
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setAttribute('aShore', new THREE.Float32BufferAttribute(shores, 1));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     geo.computeBoundingSphere();
@@ -223,7 +251,7 @@ export class WaterSurface {
     disposables.track(mat);
 
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = 3; // DIORAMA_RENDER_ORDER.WATER_SURFACE
+    mesh.renderOrder = DIORAMA_RENDER_ORDER.WATER_SURFACE;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     scene.add(mesh);

@@ -159,4 +159,48 @@ describe('WaterSurface', () => {
       expect(a2.getX(i)).toBeCloseTo(a1.getX(i), 6);
     }
   });
+
+  it('extiende la malla del agua bajo riberas orgánicas P1 con normales +Y, aShore=1 y WATER_SURFACE renderOrder (AUD-02, AUD-14)', async () => {
+    const { analyzeTerrainContours } = await import('../src/engine/TerrainContourAnalyzer.ts');
+    const { DIORAMA_RENDER_ORDER } = await import('../src/engine/DioramaLayers.ts');
+
+    const map = makeWaterMap({
+      width: 6,
+      height: 6,
+      waterCells: [
+        { x: 2, z: 2 },
+        { x: 3, z: 2 },
+        { x: 2, z: 3 },
+        { x: 3, z: 3 },
+      ],
+    });
+    // Elevate surrounding natural grass land to level 1 while pond stays at level 0
+    map.heights = [
+      '111111',
+      '111111',
+      '110011',
+      '110011',
+      '111111',
+      '111111',
+    ];
+
+    const contourAnalysis = analyzeTerrainContours(map);
+    const { scene: sBase, disposables: dBase } = makeSceneAndDisposables();
+    const wBase = new WaterSurface(sBase, dBase, map, null);
+
+    const { scene: sOrg, disposables: dOrg } = makeSceneAndDisposables();
+    const wOrg = new WaterSurface(sOrg, dOrg, map, contourAnalysis);
+
+    expect(wOrg.mesh).not.toBeNull();
+    expect(wOrg.mesh!.renderOrder).toBe(DIORAMA_RENDER_ORDER.WATER_SURFACE);
+
+    const baseCount = (wBase.mesh!.geometry.getAttribute('position') as THREE.BufferAttribute).count;
+    const orgPos = wOrg.mesh!.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const orgNorm = wOrg.mesh!.geometry.getAttribute('normal') as THREE.BufferAttribute;
+    expect(orgPos.count).toBeGreaterThan(baseCount);
+
+    for (let i = 0; i < orgNorm.count; i++) {
+      expect(orgNorm.getY(i)).toBeCloseTo(1.0, 4);
+    }
+  });
 });

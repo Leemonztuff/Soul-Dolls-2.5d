@@ -11,6 +11,11 @@ import {
   createBottomPivotPlaneGeometry,
   createLitBillboardMaterial,
 } from './BillboardBatch.ts';
+import {
+  buildCliffOrnamentsMesh,
+  createCliffOrnamentMaterial,
+  createCliffOrnamentTexture,
+} from './CliffOrnamentMesher.ts';
 import { DisposableRegistry } from './Disposables.ts';
 import {
   buildCloudBillboards,
@@ -18,7 +23,11 @@ import {
   updateCloudBillboards,
   type CloudDriftItem,
 } from './SkyBackdrop.ts';
-import { buildTerrainChunks } from './TerrainMesher.ts';
+import {
+  buildTerrainChunks,
+  type TerrainBuildArtifacts,
+} from './TerrainMesher.ts';
+import { attachTerrainDioramaShader } from './TerrainWeatheringShader.ts';
 
 export const PLAYER_STATION_POS = new THREE.Vector3(-2.15, 0.24, 2.0);
 export const ENEMY_STATION_POS = new THREE.Vector3(2.25, 0.5, -2.35);
@@ -586,10 +595,12 @@ export class BattleStage {
     this.disposables.track(sunLight);
     this.sunLight = sunLight;
 
-    // 24x24 heightfield terrain patch with normal mapping
+    // 24x24 heightfield terrain patch with normal mapping + diorama weathering/P3 blending shader
+    const terrainAtlasTex = assets.getTileAtlasTexture();
+    const terrainNormalTex = assets.getTileAtlasNormalTexture();
     const atlasMat = new THREE.MeshStandardMaterial({
-      map: assets.getTileAtlasTexture(),
-      normalMap: assets.getTileAtlasNormalTexture(),
+      map: terrainAtlasTex,
+      normalMap: terrainNormalTex,
       normalScale: new THREE.Vector2(1.15, 1.15),
       roughness: 0.92,
       metalness: 0.03,
@@ -603,17 +614,49 @@ export class BattleStage {
       metalness: 0.0,
       vertexColors: true,
     });
+    attachTerrainDioramaShader(atlasMat, biome, {
+      terrainAtlas: terrainAtlasTex,
+      terrainNormalAtlas: terrainNormalTex,
+    });
+    attachTerrainDioramaShader(grassMat, biome, {
+      terrainAtlas: terrainAtlasTex,
+      terrainNormalAtlas: terrainNormalTex,
+    });
     this.disposables.track(atlasMat);
     this.disposables.track(grassMat);
 
     const { map: stageMap, heightGrid } = buildStageMapDef(biome, theme);
-    const chunks = buildTerrainChunks(stageMap, atlasMat, grassMat);
+    const stageArtifacts: Partial<TerrainBuildArtifacts> = {};
+    const chunks = buildTerrainChunks(stageMap, atlasMat, grassMat, {
+      artifactsOut: stageArtifacts,
+    });
     for (const c of chunks) {
       c.mesh.matrixAutoUpdate = true;
       c.mesh.position.set(-11.5, -0.05, -11.5);
       c.mesh.updateMatrix();
       scene.add(c.mesh);
       this.disposables.track(c.mesh.geometry);
+    }
+
+    const cliffOrnTex = createCliffOrnamentTexture();
+    const cliffOrnMat = createCliffOrnamentMaterial(cliffOrnTex);
+    this.disposables.track(cliffOrnTex);
+    this.disposables.track(cliffOrnMat);
+    const cliffOrnGroup = buildCliffOrnamentsMesh(stageMap, cliffOrnMat, {
+      contourAnalysis: stageArtifacts.contourAnalysis,
+      anchors: stageArtifacts.ornamentAnchors,
+    });
+    if (cliffOrnGroup) {
+      cliffOrnGroup.traverse((obj) => {
+        const m = obj as THREE.Mesh;
+        if (m.isMesh && m.geometry) {
+          this.disposables.track(m.geometry);
+        }
+      });
+      cliffOrnGroup.matrixAutoUpdate = true;
+      cliffOrnGroup.position.set(-11.5, -0.05, -11.5);
+      cliffOrnGroup.updateMatrix();
+      scene.add(cliffOrnGroup);
     }
 
     // Two circular raised platforms seated firmly into their surrounding terrain terraces

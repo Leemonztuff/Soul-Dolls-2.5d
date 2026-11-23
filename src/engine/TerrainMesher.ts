@@ -11,44 +11,50 @@ import {
 import {
   appendTileRockyCliffs,
   RockyCliffBuildContext,
+  type CliffOrnamentAnchor,
   type RockyCliffChunkBuffers,
 } from './RockyCliffMesher.ts';
 import {
   getCanonicalPairSign,
   getSurfaceTransitionRule,
   planSurfaceTransitions,
+  type SurfaceTransitionPlan,
 } from './SurfaceTransitionPlanner.ts';
-import { analyzeTerrainContours } from './TerrainContourAnalyzer.ts';
+import {
+  analyzeTerrainContours,
+  type TerrainContourAnalysis,
+} from './TerrainContourAnalyzer.ts';
+import { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export const CHUNK_SIZE = 16;
 const WATER_BED_OFFSET = 0.16;
 const MAX_CLIFF_BAND_HEIGHT = 1.0;
 
 /**
- * Fracción de vecinos no-agua (0, 0.5 o 1) en las dos direcciones ortogonales
- * que apuntan hacia una esquina del tile water. Se usa para elevar suavemente
- * el lecho costero hacia la orilla sin romper la geometría de quads 1x1.
+ * Simetría exacta de lecho costero por esquina compartida entre hasta 4 tiles de agua:
+ * evalúa los 3 tiles adyacentes a la esquina `(x+dx, z)`, `(x, z+dz)` y `(x+dx, z+dz)`
+ * (todos los tiles water que comparten ese vértice inspeccionan exactamente la misma cruz
+ * de 4 celdas, eliminando escalones verticales en esquinas interiores en L).
  */
 function shoreFactorAt(
   map: MapDef,
   x: number,
   z: number,
-  dx1: number,
-  dz1: number,
-  dx2: number,
-  dz2: number
+  dx: number,
+  dz: number
 ): number {
-  const rowA = map.grid[z + dz1];
-  const chA = rowA?.[x + dx1];
-  const legA = chA ? map.legend[chA] : undefined;
-  const nonWaterA = Boolean(legA && legA.tile !== 'water');
+  const isNonWater = (tx: number, tz: number): boolean => {
+    const ch = map.grid[tz]?.[tx];
+    const leg = ch ? map.legend[ch] : undefined;
+    return Boolean(leg && leg.tile !== 'water');
+  };
 
-  const rowB = map.grid[z + dz2];
-  const chB = rowB?.[x + dx2];
-  const legB = chB ? map.legend[chB] : undefined;
-  const nonWaterB = Boolean(legB && legB.tile !== 'water');
+  const nonWaterCount =
+    Number(isNonWater(x + dx, z)) +
+    Number(isNonWater(x, z + dz)) +
+    Number(isNonWater(x + dx, z + dz));
 
-  return (Number(nonWaterA) + Number(nonWaterB)) / 2;
+  return nonWaterCount / 3;
 }
 
 export interface TerrainChunk {
@@ -61,42 +67,27 @@ export interface TerrainChunk {
   waterUvIndices: number[];
 }
 
+export interface TerrainBuildArtifacts {
+  contourAnalysis: TerrainContourAnalysis | null;
+  transitionPlan: SurfaceTransitionPlan;
+  ornamentAnchors: CliffOrnamentAnchor[];
+}
+
 export interface BuildTerrainChunksOptions {
   /** Use organic plateau contours when true (defaults to !map.isInterior) */
   organic?: boolean;
+  /** Optional output container populated with shared contour, transition, and cliff ornament data */
+  artifactsOut?: Partial<TerrainBuildArtifacts>;
+  /** Optional precomputed contours/transitions to skip full-map reanalysis during localized rebuilds */
+  precomputed?: {
+    contourAnalysis?: TerrainContourAnalysis | null;
+    transitionPlan?: SurfaceTransitionPlan;
+  };
+  /** Optional list of `"cx,cz"` chunk keys to build incrementally */
+  chunkKeys?: readonly string[];
 }
 
-export function resolveTerrainTileKey(map: MapDef, x: number, z: number): TileAtlasKey {
-  const ch = map.grid[z]?.[x] ?? '.';
-  const legend = map.legend[ch] ?? { tile: 'grass' as const, solid: false };
-  const tileLevel = getTileHeightLevel(map, x, z);
-
-  let tileKey: TileAtlasKey = legend.tile;
-  if (tileKey === 'stone') {
-    if (legend.solid) {
-      tileKey = 'cliff_rock';
-    } else if (map.biome === 'forest') {
-      tileKey = 'mossy_stone';
-    } else if (map.biome === 'cave' || map.id === 'cueva_eco') {
-      tileKey = 'cracked_stone';
-    }
-  }
-
-  if (
-    tileKey !== 'water' &&
-    tileKey !== 'bridge' &&
-    tileKey !== 'stairs' &&
-    tileKey !== 'cobble' &&
-    tileKey !== 'arena_floor' &&
-    map.snowLine !== undefined &&
-    tileLevel >= map.snowLine &&
-    (tileKey === 'grass' || tileKey === 'dirt' || tileKey === 'tall_grass')
-  ) {
-    tileKey = 'snow';
-  }
-
-  return tileKey;
-}
+export { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export function resolveCliffWallTileKey(
   map: MapDef,
@@ -350,9 +341,18 @@ export function buildTerrainChunks(
   const chunks: TerrainChunk[] = [];
   const organic = options?.organic ?? !map.isInterior;
 
-  const contourAnalysis = organic ? analyzeTerrainContours(map) : null;
-  const transitionPlan = planSurfaceTransitions(map, contourAnalysis);
+  const contourAnalysis =
+    options?.precomputed && 'contourAnalysis' in options.precomputed
+      ? (options.precomputed.contourAnalysis ?? null)
+      : organic
+        ? analyzeTerrainContours(map)
+        : null;
+  const transitionPlan =
+    options?.precomputed?.transitionPlan ?? planSurfaceTransitions(map, contourAnalysis);
   const rockyCliffCtx = contourAnalysis ? new RockyCliffBuildContext(map, contourAnalysis) : null;
+  const collectOrnaments = Boolean(options?.artifactsOut && !map.isInterior);
+  const ornamentAnchors: CliffOrnamentAnchor[] = [];
+  const chunkKeySet = options?.chunkKeys ? new Set(options.chunkKeys) : null;
   const allBoundaries = organic ? [] : detectCliffBoundaries(map);
   const boundariesByChunk = new Map<string, CliffBoundary[]>();
   for (const b of allBoundaries) {
@@ -369,6 +369,7 @@ export function buildTerrainChunks(
 
   for (let cz = 0; cz < chunksZ; cz++) {
     for (let cx = 0; cx < chunksX; cx++) {
+      if (chunkKeySet && !chunkKeySet.has(`${cx},${cz}`)) continue;
       const startX = cx * CHUNK_SIZE;
       const startZ = cz * CHUNK_SIZE;
       const endX = Math.min(width, startX + CHUNK_SIZE);
@@ -416,14 +417,14 @@ export function buildTerrainChunks(
           const z1 = z + 0.5;
 
           const useCustomGrass = Boolean(
-            grassMaterial && (tileKey === 'grass' || isTallGrass)
+            grassMaterial && (tileKey === 'grass' || (isTallGrass && tileKey !== 'snow'))
           );
           const targetIndices = useCustomGrass ? grassIndices : atlasIndices;
 
-          const checker = (x + z) % 2 === 0 ? 1.0 : 0.965;
+          const checker = 1.0;
           const heightTint = 0.9 + Math.min(0.14, tileLevel * 0.015);
           const baseShade = Math.min(1.06, 0.99 * checker * heightTint);
-          const seamNeutralShade = Math.min(1.06, 0.99 * 0.9825 * heightTint);
+          const seamNeutralShade = baseShade;
 
           const cornerMeta = (sx: number, sz: number): [number, number, number] => {
             const hx =
@@ -491,14 +492,10 @@ export function buildTerrainChunks(
               topY,
             ];
             if (tileKey === 'water') {
-              // BL (x0,z1): vecinos oeste (-1,0) y sur (0,1)
-              // BR (x1,z1): vecinos este (1,0) y sur (0,1)
-              // TR (x1,z0): vecinos este (1,0) y norte (0,-1)
-              // TL (x0,z0): vecinos oeste (-1,0) y norte (0,-1)
-              const blShore = shoreFactorAt(map, x, z, -1, 0, 0, 1);
-              const brShore = shoreFactorAt(map, x, z, 1, 0, 0, 1);
-              const trShore = shoreFactorAt(map, x, z, 1, 0, 0, -1);
-              const tlShore = shoreFactorAt(map, x, z, -1, 0, 0, -1);
+              const blShore = shoreFactorAt(map, x, z, -1, 1);
+              const brShore = shoreFactorAt(map, x, z, 1, 1);
+              const trShore = shoreFactorAt(map, x, z, 1, -1);
+              const tlShore = shoreFactorAt(map, x, z, -1, -1);
               waterCornerYs[0] = topY + blShore * WATER_BED_OFFSET; // BL
               waterCornerYs[1] = topY + brShore * WATER_BED_OFFSET; // BR
               waterCornerYs[2] = topY + trShore * WATER_BED_OFFSET; // TR
@@ -559,9 +556,10 @@ export function buildTerrainChunks(
             if (canUseSharedRing) {
               const singleTarget = tileBlend.uniqueTargets[0];
               const singleRule = getSurfaceTransitionRule(tileBlend.primaryMaterial, singleTarget);
-              const singleSlot = sectors.find((s) => s.targetTile === singleTarget)!.targetAtlasSlot;
+              const firstMatchingSector = sectors.find((s) => s.targetTile === singleTarget);
+              const singleSlot = firstMatchingSector!.targetAtlasSlot;
               const singleSign = getCanonicalPairSign(tileBlend.primaryMaterial, singleTarget);
-              const singleContrast = singleRule?.contrast ?? 1.0;
+              const singleContrast = firstMatchingSector?.contrast ?? singleRule?.contrast ?? 1.0;
 
               const centerVert = positions.length / 3;
               positions.push(x, topY, z);
@@ -673,7 +671,8 @@ export function buildTerrainChunks(
             // Lower-floor watertight perimeter fill where the top plateau retracted inward
             for (const q of contour.lowerFloorQuads) {
               const lowUseGrass = Boolean(
-                grassMaterial && (q.lowerTile === 'grass' || q.lowerIsTallGrass)
+                grassMaterial &&
+                  (q.lowerTile === 'grass' || (q.lowerIsTallGrass && q.lowerTile !== 'snow'))
               );
               const lowRect = lowUseGrass ? null : getTileUv(q.lowerTile);
               const lowTarget = lowUseGrass ? grassIndices : atlasIndices;
@@ -715,7 +714,8 @@ export function buildTerrainChunks(
 
             for (const t of contour.lowerFloorTris) {
               const lowUseGrass = Boolean(
-                grassMaterial && (t.lowerTile === 'grass' || t.lowerIsTallGrass)
+                grassMaterial &&
+                  (t.lowerTile === 'grass' || (t.lowerIsTallGrass && t.lowerTile !== 'snow'))
               );
               const lowRect = lowUseGrass ? null : getTileUv(t.lowerTile);
               const lowTarget = lowUseGrass ? grassIndices : atlasIndices;
@@ -754,7 +754,13 @@ export function buildTerrainChunks(
 
             // 3D stratified rocky cliffs following contoured rimSegments seamlessly
             if (rockyCliffCtx && contour.rimSegments.length > 0) {
-              appendTileRockyCliffs(rockyCliffCtx, contour, tileKey, chunkCliffBuffers);
+              appendTileRockyCliffs(
+                rockyCliffCtx,
+                contour,
+                tileKey,
+                chunkCliffBuffers,
+                collectOrnaments ? ornamentAnchors : undefined
+              );
             }
           }
         }
@@ -895,6 +901,12 @@ export function buildTerrainChunks(
     }
   }
 
+  if (options?.artifactsOut) {
+    options.artifactsOut.contourAnalysis = contourAnalysis;
+    options.artifactsOut.transitionPlan = transitionPlan;
+    options.artifactsOut.ornamentAnchors = ornamentAnchors;
+  }
+
   return chunks;
 }
 
@@ -1032,16 +1044,7 @@ export function buildTerrainBorderApron(
       const legend = map.legend[ch] ?? { tile: 'grass' as const, solid: false };
       const tileLevel = getTileHeightLevel(map, sampleX, sampleZ);
 
-      let tileKey: TileAtlasKey = legend.tile;
-      if (tileKey === 'stone') {
-        if (legend.solid) {
-          tileKey = 'cliff_rock';
-        } else if (map.biome === 'forest') {
-          tileKey = 'mossy_stone';
-        } else if (map.biome === 'cave' || map.id === 'cueva_eco') {
-          tileKey = 'cracked_stone';
-        }
-      }
+      let tileKey: TileAtlasKey = resolveTerrainTileKey(map, sampleX, sampleZ);
       if (
         outDist > 5.5 &&
         (tileKey === 'cobble' ||
@@ -1055,20 +1058,17 @@ export function buildTerrainBorderApron(
             : map.biome === 'mountain'
               ? 'dirt'
               : 'grass';
-      } else if (tileKey === 'tall_grass') {
-        tileKey = 'grass';
+        if (
+          map.snowLine !== undefined &&
+          tileLevel >= map.snowLine &&
+          (tileKey === 'grass' || tileKey === 'dirt')
+        ) {
+          tileKey = 'snow';
+        }
       } else if (tileKey === 'stairs') {
         tileKey = 'cobble';
       } else if (tileKey === 'bridge') {
         tileKey = 'stone';
-      }
-
-      if (
-        map.snowLine !== undefined &&
-        tileLevel >= map.snowLine &&
-        (tileKey === 'grass' || tileKey === 'dirt')
-      ) {
-        tileKey = 'snow';
       }
 
       const y00 = sampleBorderVertexY(x0, z0);
@@ -1105,7 +1105,7 @@ export function buildTerrainBorderApron(
       _e2.set(0, y00 - y01, -dz);
       _norm.crossVectors(_e1, _e2).normalize();
       const sunDot = Math.max(0, _norm.dot(_sun));
-      const checker = (ix + iz) % 2 === 0 ? 1.0 : 0.96;
+      const checker = 1.0;
       const heightTint = 0.9 + Math.min(0.14, tileLevel * 0.015);
       const shade = Math.min(1.06, (0.76 + sunDot * 0.28) * checker * heightTint);
 

@@ -6,6 +6,7 @@ import type {
   TerrainContourAnalysis,
   TileContourGeometry,
 } from './TerrainContourAnalyzer.ts';
+import { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export const SURFACE_TRANSITION_PARAMS = {
   /** Base weight along a shared same-height boundary between two compatible materials */
@@ -110,37 +111,7 @@ export function getCanonicalPairSign(
 }
 
 export function resolveSurfaceMaterialKey(map: MapDef, x: number, z: number): TileAtlasKey {
-  const ch = map.grid[z]?.[x] ?? '.';
-  const legend = map.legend[ch] ?? { tile: 'grass' as const, solid: false };
-  const tileLevel = getTileHeightLevel(map, x, z);
-
-  let tileKey: TileAtlasKey = legend.tile;
-  if (tileKey === 'tall_grass') {
-    tileKey = 'grass';
-  } else if (tileKey === 'stone') {
-    if (legend.solid) {
-      tileKey = 'cliff_rock';
-    } else if (map.biome === 'forest') {
-      tileKey = 'mossy_stone';
-    } else if (map.biome === 'cave' || map.id === 'cueva_eco') {
-      tileKey = 'cracked_stone';
-    }
-  }
-
-  if (
-    tileKey !== 'water' &&
-    tileKey !== 'bridge' &&
-    tileKey !== 'stairs' &&
-    tileKey !== 'cobble' &&
-    tileKey !== 'arena_floor' &&
-    map.snowLine !== undefined &&
-    tileLevel >= map.snowLine &&
-    (tileKey === 'grass' || tileKey === 'dirt' || tileKey === 'flowers')
-  ) {
-    tileKey = 'snow';
-  }
-
-  return tileKey;
+  return resolveTerrainTileKey(map, x, z);
 }
 
 export interface SectorBlendSpec {
@@ -310,11 +281,12 @@ export function planSurfaceTransitions(
     const rule = getSurfaceTransitionRule(matA, matB);
     if (!rule) return null;
 
+    const contrast = Math.min(1.85, rule.contrast / Math.max(0.6, rule.strength));
     return {
       targetTile: matB,
-      weight: SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT * rule.strength,
+      weight: SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT,
       noiseSign: getCanonicalPairSign(matA, matB),
-      contrast: rule.contrast,
+      contrast,
     };
   };
 
@@ -384,16 +356,17 @@ export function planSurfaceTransitions(
 
     // When only 2 unprotected surfaces meet at (vx, vz), adjacent cardinal tiles already share
     // the 0.50 boundary weight at this vertex — match it so all 4 tiles meet seamlessly.
+    const contrast = Math.min(1.85, rule.contrast / Math.max(0.6, rule.strength));
     const baseWeight =
       distinctCount >= 3
-        ? SURFACE_TRANSITION_PARAMS.TRIPLE_JUNCTION_WEIGHT * rule.strength
-        : SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT * rule.strength;
+        ? SURFACE_TRANSITION_PARAMS.TRIPLE_JUNCTION_WEIGHT
+        : SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT;
 
     return {
       targetTile: matD,
       weight: baseWeight,
       noiseSign: getCanonicalPairSign(matT, matD),
-      contrast: rule.contrast,
+      contrast,
     };
   };
 
@@ -406,11 +379,7 @@ export function planSurfaceTransitions(
   ): number => {
     const distinctCount = getCornerSurfaceCount(vx, vz, level);
     if (distinctCount >= 3) {
-      return Math.min(
-        edgeInfo.weight,
-        SURFACE_TRANSITION_PARAMS.TRIPLE_JUNCTION_WEIGHT *
-          (edgeInfo.weight / SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT)
-      );
+      return Math.min(edgeInfo.weight, SURFACE_TRANSITION_PARAMS.TRIPLE_JUNCTION_WEIGHT);
     }
     return edgeInfo.weight;
   };

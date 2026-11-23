@@ -1,6 +1,7 @@
 import { getTileHeightLevel, HEIGHT_UNIT } from '../domain/TerrainRules.ts';
 import type { MapDef } from '../domain/types.ts';
 import type { TileAtlasKey } from '../gfx/ProceduralTiles.ts';
+import { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export const TERRAIN_CONTOUR_PARAMS = {
   MAX_EDGE_OFFSET: 0.22,
@@ -49,6 +50,8 @@ export interface LowerFloorQuad {
     readonly [number, number],
   ];
   yBottom: number;
+  bottomLevel: number;
+  isWaterShore: boolean;
   lowerTile: TileAtlasKey;
   lowerIsTallGrass: boolean;
   creviceMask: readonly [number, number, number, number];
@@ -61,6 +64,8 @@ export interface LowerFloorTri {
     readonly [number, number],
   ];
   yBottom: number;
+  bottomLevel: number;
+  isWaterShore: boolean;
   lowerTile: TileAtlasKey;
   lowerIsTallGrass: boolean;
   creviceMask: readonly [number, number, number];
@@ -133,35 +138,7 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 function resolveTileKey(map: MapDef, x: number, z: number): TileAtlasKey {
-  const ch = map.grid[z]?.[x] ?? '.';
-  const legend = map.legend[ch] ?? { tile: 'grass' as const, solid: false };
-  const tileLevel = getTileHeightLevel(map, x, z);
-
-  let tileKey: TileAtlasKey = legend.tile;
-  if (tileKey === 'stone') {
-    if (legend.solid) {
-      tileKey = 'cliff_rock';
-    } else if (map.biome === 'forest') {
-      tileKey = 'mossy_stone';
-    } else if (map.biome === 'cave' || map.id === 'cueva_eco') {
-      tileKey = 'cracked_stone';
-    }
-  }
-
-  if (
-    tileKey !== 'water' &&
-    tileKey !== 'bridge' &&
-    tileKey !== 'stairs' &&
-    tileKey !== 'cobble' &&
-    tileKey !== 'arena_floor' &&
-    map.snowLine !== undefined &&
-    tileLevel >= map.snowLine &&
-    (tileKey === 'grass' || tileKey === 'dirt' || tileKey === 'tall_grass')
-  ) {
-    tileKey = 'snow';
-  }
-
-  return tileKey;
+  return resolveTerrainTileKey(map, x, z);
 }
 
 function getFloorY(level: number, isWater: boolean): number {
@@ -227,7 +204,7 @@ function computeSharedVertexGeometry(
   levels: Uint8Array,
   solidFlags: Uint8Array,
   waterFlags: Uint8Array,
-  protectedFlags: Uint8Array,
+  archProtectedFlags: Uint8Array,
   narrowCorridorFlags: Uint8Array,
   vertexLocked: Uint8Array
 ): VertexCornerOffsets {
@@ -261,9 +238,10 @@ function computeSharedVertexGeometry(
   const tileIdx = coords.map(([tx, tz]) => tz * width + tx);
   const h = tileIdx.map((i) => levels[i]);
 
-  // If any touching tile is water or protected (stairs/bridge/buildings/warps/cobble), lock vertex flush
+  // Lock vertices touching architectural/playable tiles (stairs/bridge/buildings/warps/cobble/interiors).
+  // Natural water-to-land vertices stay unlocked so lakes and riverbanks form organic curved shorelines.
   for (const idx of tileIdx) {
-    if (waterFlags[idx] || protectedFlags[idx]) {
+    if (archProtectedFlags[idx]) {
       vertexLocked[vIdx] = 1;
       return defaultOut;
     }
@@ -285,10 +263,29 @@ function computeSharedVertexGeometry(
   const highCount =
     (isHigh[0] ? 1 : 0) + (isHigh[1] ? 1 : 0) + (isHigh[2] ? 1 : 0) + (isHigh[3] ? 1 : 0);
 
+  // Prevent mixed water + land at the lower level from causing ambiguous lower-floor pocket fills,
+  // and keep any unexpected elevated water locked flush.
+  let hasHighWater = false;
+  let hasLowWater = false;
+  let hasLowLand = false;
+  for (let s = 0; s < 4; s++) {
+    const idx = tileIdx[s];
+    if (isHigh[s]) {
+      if (waterFlags[idx]) hasHighWater = true;
+    } else {
+      if (waterFlags[idx]) hasLowWater = true;
+      else hasLowLand = true;
+    }
+  }
+  if (hasHighWater || (hasLowWater && hasLowLand)) {
+    vertexLocked[vIdx] = 1;
+    return defaultOut;
+  }
+
   const edgeCapAt = (slot: number): number => {
     const idx = tileIdx[slot];
     return computeTileOffsetCap(
-      Boolean(protectedFlags[idx]),
+      Boolean(archProtectedFlags[idx]),
       Boolean(waterFlags[idx]),
       Boolean(solidFlags[idx]),
       Boolean(narrowCorridorFlags[idx])
@@ -298,7 +295,7 @@ function computeSharedVertexGeometry(
   const chamferAt = (slot: number): number => {
     const idx = tileIdx[slot];
     const base = computeTileOffsetCap(
-      Boolean(protectedFlags[idx]),
+      Boolean(archProtectedFlags[idx]),
       Boolean(waterFlags[idx]),
       Boolean(solidFlags[idx]),
       Boolean(narrowCorridorFlags[idx])
@@ -554,6 +551,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
   const solidFlags = new Uint8Array(total);
   const waterFlags = new Uint8Array(total);
   const protectedFlags = new Uint8Array(total);
+  const archProtectedFlags = new Uint8Array(total);
   const narrowCorridorFlags = new Uint8Array(total);
   const tileRegionIds = new Int32Array(total).fill(-1);
   const vertexLocked = new Uint8Array((width + 1) * (height + 1));
@@ -592,7 +590,10 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
       if (map.isInterior || isWater || isArchitectural) {
         protectedFlags[idx] = 1;
       }
-      if (isWater || legend.tile === 'stairs' || legend.tile === 'bridge') {
+      if (map.isInterior || isArchitectural) {
+        archProtectedFlags[idx] = 1;
+      }
+      if (legend.tile === 'stairs' || legend.tile === 'bridge') {
         lockTileVertices(x, z);
       }
     }
@@ -605,6 +606,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
         const bz = b.z + dz;
         if (bx >= 0 && bx < width && bz >= 0 && bz < height) {
           protectedFlags[bz * width + bx] = 1;
+          archProtectedFlags[bz * width + bx] = 1;
           lockTileVertices(bx, bz);
         }
       }
@@ -618,6 +620,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
         const wz = w.y + dz;
         if (wx >= 0 && wx < width && wz >= 0 && wz < height) {
           protectedFlags[wz * width + wx] = 1;
+          archProtectedFlags[wz * width + wx] = 1;
           if (dx === 0 && dz === 0) lockTileVertices(wx, wz);
         }
       }
@@ -640,6 +643,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
           const nz = z + dz;
           if (nx >= 0 && nx < width && nz >= 0 && nz < height) {
             protectedFlags[nz * width + nx] = 1;
+            archProtectedFlags[nz * width + nx] = 1;
           }
         }
       }
@@ -771,7 +775,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
         levels,
         solidFlags,
         waterFlags,
-        protectedFlags,
+        archProtectedFlags,
         narrowCorridorFlags,
         vertexLocked
       );
@@ -789,7 +793,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
   ): number => {
     const idx = tz * width + tx;
     const { edgeCap } = computeTileOffsetCap(
-      Boolean(protectedFlags[idx]),
+      Boolean(archProtectedFlags[idx]),
       Boolean(waterFlags[idx]),
       Boolean(solidFlags[idx]),
       Boolean(narrowCorridorFlags[idx])
@@ -809,6 +813,7 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
       const z1 = z + 0.5;
 
       const isProtected = Boolean(protectedFlags[idx]);
+      const isArchProtected = Boolean(archProtectedFlags[idx]);
       const isNarrowCorridor = Boolean(narrowCorridorFlags[idx]);
 
       const nLevel = z > 0 ? levels[(z - 1) * width + x] : level;
@@ -847,13 +852,13 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
       const nwKind = vNW.brCornerKind;
 
       const midOffsetS =
-        dropS && !isProtected ? edgeMidOffset(x, z + 1, true, x, z) : 0;
+        dropS && !isArchProtected ? edgeMidOffset(x, z + 1, true, x, z) : 0;
       const midOffsetE =
-        dropE && !isProtected ? edgeMidOffset(x + 1, z, false, x, z) : 0;
+        dropE && !isArchProtected ? edgeMidOffset(x + 1, z, false, x, z) : 0;
       const midOffsetN =
-        dropN && !isProtected ? edgeMidOffset(x, z, true, x, z) : 0;
+        dropN && !isArchProtected ? edgeMidOffset(x, z, true, x, z) : 0;
       const midOffsetW =
-        dropW && !isProtected ? edgeMidOffset(x, z, false, x, z) : 0;
+        dropW && !isArchProtected ? edgeMidOffset(x, z, false, x, z) : 0;
 
       const isSingleSquareCorner = (
         pts: readonly [number, number][],
@@ -983,6 +988,8 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
                     [ax, az],
                   ],
                   yBottom: yBot,
+                  bottomLevel: cornerLevel,
+                  isWaterShore: cornerWater,
                   lowerTile: cornerTile,
                   lowerIsTallGrass: cornerTallGrass,
                   creviceMask: [0.35, 0.85, 0.85],
@@ -995,6 +1002,8 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
                     [bx, bz],
                   ],
                   yBottom: yBot,
+                  bottomLevel: cornerLevel,
+                  isWaterShore: cornerWater,
                   lowerTile: cornerTile,
                   lowerIsTallGrass: cornerTallGrass,
                   creviceMask: [0.35, 0.85, 0.85],
@@ -1082,6 +1091,8 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
             midPtX,
             midPtZ,
             lowInfo.yBottom,
+            lowInfo.level,
+            lowInfo.isWater,
             lowInfo.tile,
             lowInfo.isTallGrass,
             lowerFloorQuads,
@@ -1097,6 +1108,8 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
             endPt[0],
             endPt[1],
             lowInfo.yBottom,
+            lowInfo.level,
+            lowInfo.isWater,
             lowInfo.tile,
             lowInfo.isTallGrass,
             lowerFloorQuads,
@@ -1127,6 +1140,8 @@ export function analyzeTerrainContours(map: MapDef): TerrainContourAnalysis {
             endPt[0],
             endPt[1],
             lowInfo.yBottom,
+            lowInfo.level,
+            lowInfo.isWater,
             lowInfo.tile,
             lowInfo.isTallGrass,
             lowerFloorQuads,
@@ -1264,6 +1279,8 @@ function emitStripSegmentFill(
   inBx: number,
   inBz: number,
   yBottom: number,
+  bottomLevel: number,
+  isWaterShore: boolean,
   lowerTile: TileAtlasKey,
   lowerIsTallGrass: boolean,
   lowerFloorQuads: LowerFloorQuad[],
@@ -1287,6 +1304,8 @@ function emitStripSegmentFill(
         [inAx, inAz],
       ],
       yBottom,
+      bottomLevel,
+      isWaterShore,
       lowerTile,
       lowerIsTallGrass,
       creviceMask: [0.35, 0.35, 0.85, 0.85],
@@ -1302,6 +1321,8 @@ function emitStripSegmentFill(
         [inBx, inBz],
       ],
       yBottom,
+      bottomLevel,
+      isWaterShore,
       lowerTile,
       lowerIsTallGrass,
       creviceMask: [0.35, 0.35, 0.85],
@@ -1315,6 +1336,8 @@ function emitStripSegmentFill(
         [inAx, inAz],
       ],
       yBottom,
+      bottomLevel,
+      isWaterShore,
       lowerTile,
       lowerIsTallGrass,
       creviceMask: [0.35, 0.85, 0.85],

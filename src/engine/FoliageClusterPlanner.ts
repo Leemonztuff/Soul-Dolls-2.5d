@@ -1,6 +1,7 @@
 import { createRng } from '../core/Rng.ts';
-import { getTileWorldY, isTileWalkable } from '../domain/TerrainRules.ts';
+import { getTileHeightLevel, getTileWorldY, isInsideBuilding, isTileWalkable } from '../domain/TerrainRules.ts';
 import type { MapDef, PropKind } from '../domain/types.ts';
+import { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export const FOLIAGE_CLUSTER_PARAMS = {
   /** Radio máximo (en unidades de mundo) dentro del cual se colocan los props de un cluster. */
@@ -19,20 +20,25 @@ export const FOLIAGE_CLUSTER_PARAMS = {
   FLOWER_SCALE_RANGE: [0.8, 1.0] as const,
 } as const;
 
-const TREE_KINDS: ReadonlyArray<PropKind> = [
+const BIOME_DEFAULT_TREES: Record<MapDef['biome'], ReadonlyArray<PropKind>> = {
+  meadow: ['oak', 'birch', 'pine'],
+  forest: ['oak', 'birch', 'mushroom_tree', 'mushroom_tree_arcane'],
+  mountain: ['pine', 'oak'],
+  snow: ['snow_pine'],
+  coast: ['oak', 'birch'],
+  arena: ['pine', 'snow_pine'],
+  cave: [],
+};
+
+const SOLID_CLUSTER_PROPS: ReadonlySet<PropKind> = new Set([
   'oak',
   'pine',
   'birch',
   'snow_pine',
   'mushroom_tree',
   'mushroom_tree_arcane',
-];
-
-const BUSH_KINDS: ReadonlyArray<PropKind> = ['bush', 'bush_arcane'];
-
-const ROCK_KINDS: ReadonlyArray<PropKind> = ['boulder', 'crystal', 'stump', 'mushroom'];
-
-const FLOWER_KINDS: ReadonlyArray<PropKind> = ['flower_patch'];
+  'boulder',
+]);
 
 export interface ClusterProp {
   kind: PropKind;
@@ -77,46 +83,230 @@ function subTileOffset(rng: ReturnType<typeof createRng>): number {
 }
 
 function isSolidProp(kind: PropKind): boolean {
-  const solidKinds: ReadonlyArray<PropKind> = [
-    'oak',
-    'pine',
-    'birch',
-    'snow_pine',
-    'mushroom_tree',
-    'mushroom_tree_arcane',
-    'boulder',
-  ];
-  return solidKinds.includes(kind);
+  return SOLID_CLUSTER_PROPS.has(kind);
 }
 
-function isPathTile(map: MapDef, x: number, z: number): boolean {
+function getTileAt(map: MapDef, x: number, z: number) {
   const row = map.grid[z];
-  if (!row) return false;
+  if (!row || x < 0 || x >= row.length) return null;
   const ch = row[x];
-  if (!ch) return false;
-  const leg = map.legend[ch];
-  if (!leg) return false;
-  return (
+  if (!ch) return null;
+  return map.legend[ch] ?? null;
+}
+
+function isPathOrForbiddenTile(map: MapDef, x: number, z: number): boolean {
+  const leg = getTileAt(map, x, z);
+  if (!leg) return true;
+  if (
     leg.tile === 'cobble' ||
     leg.tile === 'dirt' ||
     leg.tile === 'bridge' ||
     leg.tile === 'stairs' ||
     leg.tile === 'arena_floor' ||
     leg.tile === 'water' ||
+    leg.tile === 'tall_grass' ||
     (leg.tile === 'stone' && !leg.solid)
+  ) {
+    return true;
+  }
+  const resolved = resolveTerrainTileKey(map, x, z);
+  return (
+    resolved === 'cobble' ||
+    resolved === 'dirt' ||
+    resolved === 'bridge' ||
+    resolved === 'stairs' ||
+    resolved === 'arena_floor' ||
+    resolved === 'water' ||
+    resolved === 'cliff_rock' ||
+    resolved === 'mossy_stone' ||
+    resolved === 'cracked_stone'
   );
+}
+
+function hasWaterCardinalNeighbor(map: MapDef, x: number, z: number): boolean {
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    if (getTileAt(map, x + dx, z + dz)?.tile === 'water') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getCardinalMaxSlope(map: MapDef, x: number, z: number): number {
+  const height = map.grid.length;
+  const width = map.grid[0]?.length ?? 0;
+  const hC = getTileHeightLevel(map, x, z);
+  let maxDiff = 0;
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const) {
+    const nx = x + dx;
+    const nz = z + dz;
+    if (nx < 0 || nx >= width || nz < 0 || nz >= height) continue;
+    maxDiff = Math.max(maxDiff, Math.abs(getTileHeightLevel(map, nx, nz) - hC));
+  }
+  return maxDiff;
 }
 
 function tileIsFree(
   map: MapDef,
   x: number,
   z: number,
-  occupied: Set<string>
+  occupied: Set<string>,
+  requireNoWaterBank = false
 ): boolean {
-  const key = `${Math.round(x)},${Math.round(z)}`;
+  const height = map.grid.length;
+  const width = map.grid[0]?.length ?? 0;
+  if (x < 1 || x >= width - 1 || z < 1 || z >= height - 1) return false;
+  const key = `${x},${z}`;
   if (occupied.has(key)) return false;
-  if (isPathTile(map, x, z)) return false;
-  return isTileWalkable(map, x, z, x, z);
+  if (isInsideBuilding(map.buildings, x, z)) return false;
+  if (isPathOrForbiddenTile(map, x, z)) return false;
+  if (!isTileWalkable(map, x, z, x, z)) return false;
+  if (getCardinalMaxSlope(map, x, z) > 1) return false;
+  if (requireNoWaterBank && hasWaterCardinalNeighbor(map, x, z)) return false;
+  return true;
+}
+
+function inferClusterKind(
+  map: MapDef,
+  cx: number,
+  cz: number,
+  rng: ReturnType<typeof createRng>
+): ClusterPlan['kind'] {
+  const height = map.grid.length;
+  const width = map.grid[0]?.length ?? 0;
+  let nearWater = false;
+  let nearRock = false;
+
+  for (let dz = -3; dz <= 3; dz++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (nx < 0 || nx >= width || nz < 0 || nz >= height) continue;
+      const leg = getTileAt(map, nx, nz);
+      if (!leg) continue;
+      if (leg.tile === 'water') nearWater = true;
+      if (leg.tile === 'stone') nearRock = true;
+    }
+  }
+
+  const hC = getTileHeightLevel(map, cx, cz);
+  const isSnowy = map.biome === 'snow' || (map.snowLine !== undefined && hC >= map.snowLine);
+
+  if (nearWater) {
+    return rng.next() < 0.85 ? 'riverside' : 'meadow';
+  }
+  if (isSnowy || nearRock || map.biome === 'mountain' || map.biome === 'arena') {
+    return rng.next() < 0.72 ? 'rocky' : 'forest';
+  }
+  if (map.biome === 'forest') {
+    return rng.next() < 0.76 ? 'forest' : 'meadow';
+  }
+  return rng.next() < 0.5 ? 'meadow' : 'forest';
+}
+
+function resolveAllowedTrees(
+  map: MapDef,
+  x: number,
+  z: number,
+  clusterKind: ClusterPlan['kind']
+): PropKind[] {
+  const level = getTileHeightLevel(map, x, z);
+  const isSnowy =
+    map.biome === 'snow' || (map.snowLine !== undefined && level >= map.snowLine);
+  const configured = map.decoration.treeKinds;
+  const rawPool: PropKind[] =
+    configured.length > 0
+      ? [...configured]
+      : [...(BIOME_DEFAULT_TREES[map.biome] ?? BIOME_DEFAULT_TREES.meadow)];
+
+  const expanded: PropKind[] = [];
+  for (const k of rawPool) {
+    if (k === 'mushroom_tree') {
+      expanded.push('mushroom_tree');
+      if (map.biome === 'forest' || configured.includes('mushroom_tree')) {
+        expanded.push('mushroom_tree_arcane');
+      }
+    } else if (!expanded.includes(k)) {
+      expanded.push(k);
+    }
+  }
+
+  let filtered: PropKind[];
+  if (isSnowy) {
+    const snowSet = expanded.filter((k) => k === 'snow_pine' || k === 'pine');
+    filtered = snowSet.length > 0 ? snowSet : ['snow_pine'];
+  } else {
+    filtered = expanded.filter((k) => k !== 'snow_pine');
+    if (filtered.length === 0) filtered = ['pine', 'oak'];
+  }
+
+  if (clusterKind === 'riverside') {
+    const rip = filtered.filter((k) => k === 'birch' || k === 'oak');
+    if (rip.length > 0) return rip;
+  } else if (clusterKind === 'rocky') {
+    const conif = filtered.filter((k) => k === 'pine' || k === 'snow_pine');
+    if (conif.length > 0) return conif;
+  } else if (clusterKind === 'meadow') {
+    const broad = filtered.filter((k) => k === 'oak' || k === 'birch' || k === 'pine');
+    if (broad.length > 0) return broad;
+  }
+
+  return filtered;
+}
+
+function resolveAllowedBushes(map: MapDef, x: number, z: number): PropKind[] {
+  const level = getTileHeightLevel(map, x, z);
+  const isSnowy =
+    map.biome === 'snow' || (map.snowLine !== undefined && level >= map.snowLine);
+  if (isSnowy) return [];
+  if (map.biome === 'forest' || map.decoration.treeKinds.includes('mushroom_tree')) {
+    return ['bush', 'bush_arcane'];
+  }
+  if (map.biome === 'arena') return ['bush_arcane'];
+  return ['bush'];
+}
+
+function resolveAllowedRocks(map: MapDef, x: number, z: number): PropKind[] {
+  const level = getTileHeightLevel(map, x, z);
+  const isSnowy =
+    map.biome === 'snow' || (map.snowLine !== undefined && level >= map.snowLine);
+  if (map.biome === 'arena') return ['boulder', 'crystal', 'stump'];
+  if (
+    !isSnowy &&
+    (map.biome === 'forest' ||
+      map.decoration.mushroomDensity > 0 ||
+      map.decoration.treeKinds.includes('mushroom_tree'))
+  ) {
+    return ['boulder', 'stump', 'mushroom'];
+  }
+  return ['boulder', 'stump'];
+}
+
+function resolveAllowedFlowers(
+  map: MapDef,
+  x: number,
+  z: number,
+  clusterKind: ClusterPlan['kind'],
+  respectDensity: boolean
+): PropKind[] {
+  const level = getTileHeightLevel(map, x, z);
+  const isSnowy =
+    map.biome === 'snow' || (map.snowLine !== undefined && level >= map.snowLine);
+  if (isSnowy || clusterKind === 'rocky') return [];
+  if (respectDensity && map.decoration.flowerDensity <= 0 && clusterKind !== 'riverside') {
+    return [];
+  }
+  return ['flower_patch'];
 }
 
 function buildCluster(
@@ -125,91 +315,126 @@ function buildCluster(
   kind: ClusterPlan['kind'],
   map: MapDef,
   rng: ReturnType<typeof createRng>,
-  occupied: Set<string>
+  occupied: Set<string>,
+  respectDensity: boolean
 ): ClusterPlan | null {
   const props: ClusterProp[] = [];
-  const baseY = getTileWorldY(map, Math.round(cx), Math.round(cz));
-  void baseY;
 
   const placeProp = (
     propKind: PropKind,
     offsetX: number,
     offsetZ: number,
-    scaleRange: readonly [number, number]
+    scaleRange: readonly [number, number],
+    isAnchor = false
   ): boolean => {
     const x = cx + offsetX;
     const z = cz + offsetZ;
     const rx = Math.round(x);
     const rz = Math.round(z);
-    const key = `${rx},${rz}`;
-    if (occupied.has(key)) return false;
-    if (!tileIsFree(map, rx, rz, occupied)) return false;
+    if (!tileIsFree(map, rx, rz, occupied, isAnchor)) return false;
 
     const solid = isSolidProp(propKind);
     const y = getTileWorldY(map, rx, rz);
     const scale = clampScale(rng, scaleRange);
 
     props.push({ kind: propKind, x, z, y, scale, solid });
-    occupied.add(key);
-    if (solid) {
-      // Las rocas y árboles sólidos ocupan su tile lógico para colisión.
-    }
+    occupied.add(`${rx},${rz}`);
     return true;
   };
 
-  // Composición base: 1 árbol principal + 2-3 arbustos + 1-2 rocas + 0-2 flores
-  const nBushes = 2 + Math.floor(rng.next() * 2); // 2 o 3
-  const nRocks = 1 + Math.floor(rng.next() * 2); // 1 o 2
-  const nFlowers = rng.next() < 0.6 ? 1 + Math.floor(rng.next() * 2) : 0; // 0, 1 o 2
+  // Recetas diferenciadas por tipo de cluster
+  const nBushes =
+    kind === 'forest' || kind === 'riverside'
+      ? 2 + Math.floor(rng.next() * 2) // 2..3
+      : kind === 'meadow'
+        ? 1 + Math.floor(rng.next() * 2) // 1..2
+        : rng.next() < 0.45
+          ? 1
+          : 0;
+  const nRocks =
+    kind === 'rocky'
+      ? 2 + Math.floor(rng.next() * 2) // 2..3
+      : kind === 'forest'
+        ? 1 + Math.floor(rng.next() * 2) // 1..2
+        : kind === 'riverside'
+          ? 1
+          : rng.next() < 0.5
+            ? 1
+            : 0;
+  const nFlowers =
+    kind === 'riverside' || kind === 'meadow'
+      ? 2 + Math.floor(rng.next() * 2) // 2..3
+      : kind === 'forest' && rng.next() < 0.35
+        ? 1
+        : 0;
 
-  // Árbol principal en el centro con pequeño offset
-  const treeKind = pickKind(rng, TREE_KINDS);
-  if (!placeProp(treeKind, subTileOffset(rng), subTileOffset(rng), FOLIAGE_CLUSTER_PARAMS.TREE_SCALE_RANGE)) {
-    return null; // No se pudo colocar el ancla del cluster
+  // Árbol principal en el centro con pequeño offset sub-tile (nunca pegado al filo del agua)
+  const treePool = resolveAllowedTrees(map, cx, cz, kind);
+  if (treePool.length === 0) return null;
+  const treeKind = pickKind(rng, treePool);
+  if (
+    !placeProp(
+      treeKind,
+      subTileOffset(rng),
+      subTileOffset(rng),
+      FOLIAGE_CLUSTER_PARAMS.TREE_SCALE_RANGE,
+      true
+    )
+  ) {
+    return null;
   }
 
-  // Arbustos satélite alrededor del árbol
-  let bushesPlaced = 0;
-  let attempts = 0;
-  while (bushesPlaced < nBushes && attempts < 12) {
-    attempts++;
-    const angle = rng.next() * Math.PI * 2;
-    const dist = 0.7 + rng.next() * 0.9;
-    const ox = Math.cos(angle) * dist;
-    const oz = Math.sin(angle) * dist;
-    const bushKind = pickKind(rng, BUSH_KINDS);
-    if (placeProp(bushKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.BUSH_SCALE_RANGE)) {
-      bushesPlaced++;
+  // Arbustos satélite alrededor del árbol (según bioma/altitud)
+  const bushPool = resolveAllowedBushes(map, cx, cz);
+  if (bushPool.length > 0 && nBushes > 0) {
+    let bushesPlaced = 0;
+    let attempts = 0;
+    while (bushesPlaced < nBushes && attempts < 12) {
+      attempts++;
+      const angle = rng.next() * Math.PI * 2;
+      const dist = 0.7 + rng.next() * 0.9;
+      const ox = Math.cos(angle) * dist;
+      const oz = Math.sin(angle) * dist;
+      const bushKind = pickKind(rng, bushPool);
+      if (placeProp(bushKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.BUSH_SCALE_RANGE)) {
+        bushesPlaced++;
+      }
     }
   }
 
-  // Rocas bajas en la base del árbol
-  let rocksPlaced = 0;
-  attempts = 0;
-  while (rocksPlaced < nRocks && attempts < 12) {
-    attempts++;
-    const angle = rng.next() * Math.PI * 2;
-    const dist = 0.45 + rng.next() * 0.55;
-    const ox = Math.cos(angle) * dist;
-    const oz = Math.sin(angle) * dist;
-    const rockKind = pickKind(rng, ROCK_KINDS);
-    if (placeProp(rockKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.ROCK_SCALE_RANGE)) {
-      rocksPlaced++;
+  // Rocas bajas / tocones / hongos en la base del árbol (sin cristales fuera de cueva/arena)
+  const rockPool = resolveAllowedRocks(map, cx, cz);
+  if (rockPool.length > 0 && nRocks > 0) {
+    let rocksPlaced = 0;
+    let attempts = 0;
+    while (rocksPlaced < nRocks && attempts < 12) {
+      attempts++;
+      const angle = rng.next() * Math.PI * 2;
+      const dist = 0.45 + rng.next() * 0.65;
+      const ox = Math.cos(angle) * dist;
+      const oz = Math.sin(angle) * dist;
+      const rockKind = pickKind(rng, rockPool);
+      if (placeProp(rockKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.ROCK_SCALE_RANGE)) {
+        rocksPlaced++;
+      }
     }
   }
 
-  // Flores alrededor (solo visuales, no sólidas)
-  let flowersPlaced = 0;
-  attempts = 0;
-  while (flowersPlaced < nFlowers && attempts < 10) {
-    attempts++;
-    const angle = rng.next() * Math.PI * 2;
-    const dist = 1.0 + rng.next() * 0.6;
-    const ox = Math.cos(angle) * dist;
-    const oz = Math.sin(angle) * dist;
-    const flowerKind = pickKind(rng, FLOWER_KINDS);
-    if (placeProp(flowerKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.FLOWER_SCALE_RANGE)) {
-      flowersPlaced++;
+  // Flores alrededor (según tipo de cluster/snowLine/densidad)
+  const flowerPool = resolveAllowedFlowers(map, cx, cz, kind, respectDensity);
+  if (flowerPool.length > 0 && nFlowers > 0) {
+    let flowersPlaced = 0;
+    let attempts = 0;
+    while (flowersPlaced < nFlowers && attempts < 10) {
+      attempts++;
+      const angle = rng.next() * Math.PI * 2;
+      const dist = 0.95 + rng.next() * 0.6;
+      const ox = Math.cos(angle) * dist;
+      const oz = Math.sin(angle) * dist;
+      const flowerKind = pickKind(rng, flowerPool);
+      if (placeProp(flowerKind, ox, oz, FOLIAGE_CLUSTER_PARAMS.FLOWER_SCALE_RANGE)) {
+        flowersPlaced++;
+      }
     }
   }
 
@@ -224,8 +449,18 @@ export function planFoliageClusters(
     minDistBetweenClusters?: number;
     /** Set de tiles ya ocupados (formato "x,z") que el cluster planner debe respetar. */
     occupied?: Set<string>;
+    /** Si true (runtime), respeta treeDensity/bushDensity=0 para evitar árboles en mapas limpios/cuevas. */
+    respectDensity?: boolean;
   } = {}
 ): FoliageClusterPlan {
+  if (map.isInterior || map.biome === 'cave' || map.music === 'cave') {
+    return { clusters: [], solidProps: [], visualProps: [] };
+  }
+  const respectDensity = options.respectDensity === true;
+  if (respectDensity && map.decoration.treeDensity <= 0 && map.decoration.bushDensity <= 0) {
+    return { clusters: [], solidProps: [], visualProps: [] };
+  }
+
   const seed =
     options.seed !== undefined ? options.seed : map.decoration.seed ^ 0x434c5553;
   const maxClusters =
@@ -276,7 +511,6 @@ export function planFoliageClusters(
   const clusters: ClusterPlan[] = [];
   const clusterCenters: Array<{ x: number; z: number }> = [];
 
-  // Intentar colocar clusters en tiles de grass libres, distribuidos por el mapa
   const attemptsPerCluster = 6;
   let clustersPlaced = 0;
   let totalAttempts = 0;
@@ -299,16 +533,10 @@ export function planFoliageClusters(
     }
     if (tooClose) continue;
 
-    // El centro debe estar en un tile libre y transitible
-    if (!tileIsFree(map, cx, cz, occupied)) continue;
+    if (!tileIsFree(map, cx, cz, occupied, true)) continue;
 
-    const clusterKind: ClusterPlan['kind'] =
-      rng.next() < 0.35 ? 'forest' :
-      rng.next() < 0.5 ? 'meadow' :
-      rng.next() < 0.75 ? 'riverside' :
-      'rocky';
-
-    const cluster = buildCluster(cx, cz, clusterKind, map, rng, occupied);
+    const clusterKind = inferClusterKind(map, cx, cz, rng);
+    const cluster = buildCluster(cx, cz, clusterKind, map, rng, occupied, respectDensity);
     if (!cluster) continue;
 
     clusterCenters.push({ x: cx, z: cz });

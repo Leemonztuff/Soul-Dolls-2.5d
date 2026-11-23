@@ -470,4 +470,63 @@ describe('P3 SurfaceTransitionPlanner & Organic Terrain Blending', () => {
     atlasTex.dispose();
     normTex.dispose();
   });
+
+  it('mantiene peso exacto 0.5 en bordes cobble<->grass y cliff_rock<->grass y elimina el checker en los chunks (AUD-01, AUD-11)', () => {
+    const map = makeTransitionMap(
+      [
+        '....====',
+        '....====',
+        '.##.....',
+        '.##.....',
+      ],
+      [
+        '11111111',
+        '11111111',
+        '11111111',
+        '11111111',
+      ]
+    );
+    const plan = planSurfaceTransitions(map);
+    // Cobble (4,0) vs grass (3,0): shared x=3.5 seam must have weight === MAX_EDGE_BLEND_WEIGHT (0.5)
+    const grassTile = plan.tilePlans[0 * 8 + 3];
+    const cobbleTile = plan.tilePlans[0 * 8 + 4];
+    const gEdge = grassTile.sectors.find(
+      (s) => Math.abs(s.ax - 3.5) < 1e-6 && Math.abs(s.bx - 3.5) < 1e-6 && s.targetTile === 'cobble'
+    );
+    const cEdge = cobbleTile.sectors.find(
+      (s) => Math.abs(s.ax - 3.5) < 1e-6 && Math.abs(s.bx - 3.5) < 1e-6 && s.targetTile === 'grass'
+    );
+    expect(gEdge).toBeDefined();
+    expect(cEdge).toBeDefined();
+    expect(gEdge!.weightB).toBeCloseTo(SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT, 6);
+    expect(cEdge!.weightA).toBeCloseTo(SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT, 6);
+    expect(gEdge!.contrast).toBeGreaterThan(1.14);
+
+    // Same-level cliff_rock (2,2) vs grass (3,2): weight === 0.5
+    const rockGrass = plan.tilePlans[2 * 8 + 3].sectors.find((s) => s.targetTile === 'cliff_rock');
+    expect(rockGrass).toBeDefined();
+    expect(Math.max(rockGrass!.weightA, rockGrass!.weightB)).toBeCloseTo(
+      SURFACE_TRANSITION_PARAMS.MAX_EDGE_BLEND_WEIGHT,
+      6
+    );
+
+    // Build chunks and verify neighboring flat tiles at identical elevation share identical vertex shade (zero checkerboard)
+    const mat = new THREE.MeshStandardMaterial();
+    const grassMat = new THREE.MeshStandardMaterial();
+    const chunks = buildTerrainChunks(map, mat, grassMat);
+    const col = chunks[0].mesh.geometry.getAttribute('color') as THREE.BufferAttribute;
+    const pos = chunks[0].mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const meta = chunks[0].mesh.geometry.getAttribute('aCliffMeta') as THREE.BufferAttribute;
+    const interiorShades = new Set<string>();
+    for (let i = 0; i < pos.count; i++) {
+      if (meta.getX(i) < 0.5 && meta.getZ(i) < 0.01 && Math.abs(pos.getY(i) - 0.5) < 1e-4) {
+        interiorShades.add(col.getX(i).toFixed(5));
+      }
+    }
+    expect(interiorShades.size).toBe(1);
+
+    chunks.forEach((c) => c.mesh.geometry.dispose());
+    mat.dispose();
+    grassMat.dispose();
+  });
 });

@@ -143,7 +143,6 @@ export const PROP_ATLAS_REGISTRY: readonly PropAtlasDef[] = [
     windAmp: 0.05,
     occludable: true,
     solid: true,
-    grass: true,
   },
   {
     kind: 'atlas_banco_00',

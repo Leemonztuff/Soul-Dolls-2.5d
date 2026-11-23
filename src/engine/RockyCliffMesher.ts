@@ -1,4 +1,4 @@
-import { getTileHeightLevel, HEIGHT_UNIT } from '../domain/TerrainRules.ts';
+import { HEIGHT_UNIT } from '../domain/TerrainRules.ts';
 import type { MapDef } from '../domain/types.ts';
 import type { TileAtlasKey } from '../gfx/ProceduralTiles.ts';
 import { getTileUv } from './AtlasBuilder.ts';
@@ -8,6 +8,7 @@ import type {
   TerrainContourAnalysis,
   TileContourGeometry,
 } from './TerrainContourAnalyzer.ts';
+import { resolveTerrainTileKey } from './TerrainSurfaceResolver.ts';
 
 export const ROCKY_CLIFF_PARAMS = {
   /** Upper beveled shoulder connecting plateau surface to rock wall (0.08-0.15 reference) */
@@ -176,35 +177,7 @@ function inferCardinalDirection(nx: number, nz: number): CliffDirection {
 }
 
 function resolveTileAtlasKey(map: MapDef, x: number, z: number): TileAtlasKey {
-  const ch = map.grid[z]?.[x] ?? '.';
-  const legend = map.legend[ch] ?? { tile: 'grass' as const, solid: false };
-  const tileLevel = getTileHeightLevel(map, x, z);
-
-  let tileKey: TileAtlasKey = legend.tile;
-  if (tileKey === 'stone') {
-    if (legend.solid) {
-      tileKey = 'cliff_rock';
-    } else if (map.biome === 'forest') {
-      tileKey = 'mossy_stone';
-    } else if (map.biome === 'cave' || map.id === 'cueva_eco') {
-      tileKey = 'cracked_stone';
-    }
-  }
-
-  if (
-    tileKey !== 'water' &&
-    tileKey !== 'bridge' &&
-    tileKey !== 'stairs' &&
-    tileKey !== 'cobble' &&
-    tileKey !== 'arena_floor' &&
-    map.snowLine !== undefined &&
-    tileLevel >= map.snowLine &&
-    (tileKey === 'grass' || tileKey === 'dirt' || tileKey === 'tall_grass')
-  ) {
-    tileKey = 'snow';
-  }
-
-  return tileKey;
+  return resolveTerrainTileKey(map, x, z);
 }
 
 /**
@@ -459,12 +432,14 @@ function buildProfileColumnNodes(
   safeOutward: number,
   protectedVertex: boolean,
   isNarrowCorridor: boolean,
+  allowOverhangVertex: boolean,
+  allowTalusVertex: boolean,
   seed: number,
   classification: CliffSurfaceClassification
 ): ProfileNode[] {
   const dropHeight = yTop - yBottom;
   const nodes: ProfileNode[] = [];
-  const inwardCap = protectedVertex ? 0.015 : isNarrowCorridor ? 0.045 : 0.11;
+  const inwardCap = protectedVertex ? 0 : isNarrowCorridor ? 0.045 : 0.11;
 
   // 1. Exact top rim matching topPolygon (s = 0 -> zero cracks, zero plateau invasion)
   nodes.push({
@@ -478,9 +453,8 @@ function buildProfileColumnNodes(
     baseAO: 0.03,
   });
 
-  // Protected wall/vertex or shallow bank fallback (flush s = 0 at protected corners eliminates miter hairlines at stairs/buildings/water)
+  // Protected architectural wall, water bank, or shallow curb fallback (always sealed flush)
   if (
-    protectedVertex ||
     classification.isProtectedWall ||
     classification.isWaterBank ||
     dropHeight < 0.35
@@ -523,7 +497,7 @@ function buildProfileColumnNodes(
     }
     nodes.push({
       y: yBottom,
-      s: 0, // Seal cleanly to outer boundary on protected / water walls
+      s: 0,
       bandKind: 'basal_talus',
       stratumIndex: 99,
       tileKey: classification.talusTile,
@@ -534,7 +508,7 @@ function buildProfileColumnNodes(
     return nodes;
   }
 
-  // 2. Cliff Shoulder (bevel 0.08-0.15)
+  // 2. Cliff Shoulder (bevel 0.08-0.14)
   const shoulderJitter = hashWorld3D(x, yTop, z, seed, 101);
   const shoulderH = clamp(
     Math.min(
@@ -547,7 +521,7 @@ function buildProfileColumnNodes(
     dropHeight * 0.28
   );
   const shoulderOut =
-    safeOutward > 0.01
+    !protectedVertex && safeOutward > 0.01
       ? clamp(
           Math.max(0.03, safeOutward * (0.65 + 0.35 * shoulderJitter)),
           0,
@@ -567,8 +541,9 @@ function buildProfileColumnNodes(
     baseAO: 0.06,
   });
 
-  // 3. Overhang Lip + Underside (extrusion 0.08-0.15 relative to undercut bedrock below)
-  const talusReserve = classification.allowTalus
+  // 3. Canonical overhang + talus reserve purely from dropHeight so adjacent vertices keep matching node topology
+  const hasTalusSlot = dropHeight >= 0.45;
+  const talusReserve = hasTalusSlot
     ? clamp(
         dropHeight * 0.22,
         ROCKY_CLIFF_PARAMS.TALUS_MIN_HEIGHT,
@@ -576,23 +551,32 @@ function buildProfileColumnNodes(
       )
     : 0;
   const yTalusTop = yBottom + talusReserve;
+  const canonMinShoulderY = yTop - ROCKY_CLIFF_PARAMS.SHOULDER_MAX_HEIGHT;
+  const overhangSpan =
+    ROCKY_CLIFF_PARAMS.OVERHANG_LIP_HEIGHT + ROCKY_CLIFF_PARAMS.OVERHANG_UNDERSIDE_HEIGHT;
+  const hasOverhangSlots =
+    dropHeight >= 0.48 && canonMinShoulderY - yTalusTop > overhangSpan + 0.06;
   let yWallTop = yShoulder;
 
-  if (
-    classification.allowOverhang &&
-    yShoulder - yTalusTop >
-      ROCKY_CLIFF_PARAMS.OVERHANG_LIP_HEIGHT +
-        ROCKY_CLIFF_PARAMS.OVERHANG_UNDERSIDE_HEIGHT +
-        0.08
-  ) {
+  if (hasOverhangSlots) {
+    const emitRealOverhang =
+      allowOverhangVertex && !protectedVertex && !isNarrowCorridor && classification.allowOverhang;
     const lipHash = hashWorld3D(x, yShoulder, z, seed, 137);
-    const lipOut = clamp(shoulderOut + 0.015 + lipHash * 0.025, shoulderOut, safeOutward);
+    const lipOut = emitRealOverhang
+      ? clamp(shoulderOut + 0.015 + lipHash * 0.025, shoulderOut, safeOutward)
+      : protectedVertex
+        ? 0
+        : shoulderOut * 0.35;
     const desiredOverhang =
       ROCKY_CLIFF_PARAMS.OVERHANG_MIN_EXTRUSION +
       lipHash *
         (ROCKY_CLIFF_PARAMS.OVERHANG_MAX_EXTRUSION -
           ROCKY_CLIFF_PARAMS.OVERHANG_MIN_EXTRUSION);
-    const sUndercut = clamp(lipOut - desiredOverhang, -inwardCap, -0.03);
+    const sUndercut = emitRealOverhang
+      ? clamp(lipOut - desiredOverhang, -inwardCap, -0.03)
+      : protectedVertex
+        ? 0
+        : -inwardCap * 0.35;
     const yLipBot = yShoulder - ROCKY_CLIFF_PARAMS.OVERHANG_LIP_HEIGHT;
     const yUnder = yLipBot - ROCKY_CLIFF_PARAMS.OVERHANG_UNDERSIDE_HEIGHT;
 
@@ -602,9 +586,9 @@ function buildProfileColumnNodes(
       bandKind: 'overhang_lip',
       stratumIndex: 0,
       tileKey: classification.lipTile,
-      shadeMul: 1.02,
-      topFactor: 0.62,
-      baseAO: 0.12,
+      shadeMul: emitRealOverhang ? 1.02 : 0.96,
+      topFactor: emitRealOverhang ? 0.62 : 0.48,
+      baseAO: emitRealOverhang ? 0.12 : 0.14,
     });
     nodes.push({
       y: yUnder,
@@ -612,46 +596,45 @@ function buildProfileColumnNodes(
       bandKind: 'overhang_underside',
       stratumIndex: 0,
       tileKey: classification.lipTile,
-      shadeMul: 0.68,
-      topFactor: 0.0,
-      baseAO: 0.68,
+      shadeMul: emitRealOverhang ? 0.68 : 0.90,
+      topFactor: emitRealOverhang ? 0.0 : 0.25,
+      baseAO: emitRealOverhang ? 0.68 : 0.18,
     });
     yWallTop = yUnder;
   }
 
-  // 4. Stratified Rock Bands using canonical world Y intervals so adjacent multi-tier drops align without sliver cuts
-  const remainingRockH = yWallTop - yTalusTop;
-  if (remainingRockH > ROCKY_CLIFF_PARAMS.MIN_BAND_HEIGHT) {
-    const hasOverhang = nodes.some((n) => n.bandKind === 'overhang_lip');
-    const canonWallTop =
-      yTop -
-      ROCKY_CLIFF_PARAMS.SHOULDER_MAX_HEIGHT -
-      (hasOverhang
-        ? ROCKY_CLIFF_PARAMS.OVERHANG_LIP_HEIGHT + ROCKY_CLIFF_PARAMS.OVERHANG_UNDERSIDE_HEIGHT
-        : 0);
-    const wave = Math.sin(x * 0.31 + z * 0.23) * 0.03;
+  // 4. Stratified Rock Bands using deterministic index range independent of horizontal wave jitter
+  const canonWallTop =
+    yTop -
+    ROCKY_CLIFF_PARAMS.SHOULDER_MAX_HEIGHT -
+    (hasOverhangSlots ? overhangSpan : 0);
+  const canonRemainingH = canonWallTop - yTalusTop;
+  if (canonRemainingH > ROCKY_CLIFF_PARAMS.MIN_BAND_HEIGHT) {
+    const wave = protectedVertex ? 0 : Math.sin(x * 0.31 + z * 0.23) * 0.03;
     const stepBase = ROCKY_CLIFF_PARAMS.STRATUM_BASE_THICKNESS;
     const minStratumY = yTalusTop + 0.025;
     const maxStratumY = yWallTop - 0.025;
 
-    // Canonical strata index range ensures adjacent columns emit matching structural bands
-    const startPlaneIdx = Math.floor((canonWallTop - 0.03) / stepBase);
-    const endPlaneIdx = Math.ceil((yTalusTop + 0.03) / stepBase);
+    const startPlaneIdx = Math.floor((canonWallTop - 0.035) / stepBase);
+    const endPlaneIdx = Math.ceil((yTalusTop + 0.035) / stepBase);
     let lastS = nodes[nodes.length - 1].s;
 
     for (let planeIdx = startPlaneIdx; planeIdx >= endPlaneIdx; planeIdx--) {
-      const planeY = clamp(planeIdx * stepBase + wave, minStratumY, maxStratumY);
-      if (planeY <= minStratumY + 1e-4 || planeY >= maxStratumY - 1e-4) continue;
+      const basePlaneY = planeIdx * stepBase;
+      if (basePlaneY <= yTalusTop + 0.035 || basePlaneY >= canonWallTop - 0.035) continue;
+      const planeY = clamp(basePlaneY + wave, minStratumY, maxStratumY);
 
       const sHash = hashWorld3D(x, planeIdx, z, seed, 211 + Math.abs(planeIdx));
       const tiltSign = planeIdx % 2 === 0 ? 1 : -1;
-      const targetS = clamp(
-        -0.055 +
-          tiltSign * (0.025 + sHash * ROCKY_CLIFF_PARAMS.STRATUM_DEPTH_STEP) +
-          (sHash - 0.5) * 0.03,
-        -inwardCap,
-        Math.min(safeOutward * 0.5, 0.035)
-      );
+      const targetS = protectedVertex
+        ? 0
+        : clamp(
+            -0.055 +
+              tiltSign * (0.025 + sHash * ROCKY_CLIFF_PARAMS.STRATUM_DEPTH_STEP) +
+              (sHash - 0.5) * 0.03,
+            -inwardCap,
+            Math.min(safeOutward * 0.5, 0.035)
+          );
 
       const bandTile =
         classification.strataPalette[Math.abs(planeIdx) % classification.strataPalette.length];
@@ -659,7 +642,7 @@ function buildProfileColumnNodes(
 
       nodes.push({
         y: planeY,
-        s: (lastS + targetS) * 0.5 + (targetS - lastS) * 0.35,
+        s: protectedVertex ? 0 : (lastS + targetS) * 0.5 + (targetS - lastS) * 0.35,
         bandKind: 'rock_stratum',
         stratumIndex: Math.abs(planeIdx),
         tileKey: bandTile,
@@ -671,15 +654,18 @@ function buildProfileColumnNodes(
     }
   }
 
-  // 5. Basal Talus top & grounded foot at y = yBottom (s >= 0 prevents any floor gaps!)
-  if (classification.allowTalus && talusReserve > ROCKY_CLIFF_PARAMS.MIN_BAND_HEIGHT) {
+  // 5. Basal Talus top & grounded foot at y = yBottom (flush s = 0 on protected corners)
+  if (hasTalusSlot && talusReserve > ROCKY_CLIFF_PARAMS.MIN_BAND_HEIGHT) {
+    const emitRealTalus = allowTalusVertex && !protectedVertex && classification.allowTalus;
     const talusHash = hashWorld3D(x, yBottom, z, seed, 409);
-    const sWallBase = clamp(-0.045 - talusHash * 0.035, -inwardCap, -0.015);
+    const sWallBase = emitRealTalus
+      ? clamp(-0.045 - talusHash * 0.035, -inwardCap, -0.015)
+      : 0;
     const talusCap =
-      safeOutward > 0.01
+      emitRealTalus && safeOutward > 0.01
         ? Math.min(safeOutward, ROCKY_CLIFF_PARAMS.TALUS_MAX_OUTWARD_SOLID)
         : 0;
-    const sTalusFoot = clamp(talusCap * (0.65 + 0.35 * talusHash), 0, talusCap);
+    const sTalusFoot = emitRealTalus ? clamp(talusCap * (0.65 + 0.35 * talusHash), 0, talusCap) : 0;
 
     nodes.push({
       y: yTalusTop,
@@ -824,15 +810,98 @@ function pushBandQuad(
   return true;
 }
 
+interface VertexEndpointConstraint {
+  minYBottom: number;
+  maxYBottom: number;
+  anyProtectedWall: boolean;
+  anyNarrow: boolean;
+  dropMismatch: boolean;
+  overhangDiffers: boolean;
+  talusDiffers: boolean;
+}
+
+function buildVertexConstraintLookup(
+  map: MapDef,
+  analysis: TerrainContourAnalysis
+): Map<string, VertexEndpointConstraint> {
+  const accum = new Map<
+    string,
+    {
+      minYBottom: number;
+      maxYBottom: number;
+      anyProtectedWall: boolean;
+      anyNarrow: boolean;
+      firstOverhang: boolean;
+      overhangDiffers: boolean;
+      firstTalus: boolean;
+      talusDiffers: boolean;
+    }
+  >();
+
+  for (const contour of analysis.tileContours) {
+    if (contour.rimSegments.length === 0) continue;
+    const topTile = resolveTileAtlasKey(map, contour.x, contour.z);
+
+    for (const seg of contour.rimSegments) {
+      if (contour.level * HEIGHT_UNIT - seg.yBottom <= 0.005) continue;
+      const cls = classifyCliffSegmentSurface(map, contour, seg, topTile);
+      const isProtWall = cls.isProtectedWall || cls.isWaterBank;
+
+      for (const [px, pz] of [
+        [seg.ax, seg.az],
+        [seg.bx, seg.bz],
+      ] as const) {
+        const k = `${vertexKey(px, pz)}@${contour.level}`;
+        const existing = accum.get(k);
+        if (!existing) {
+          accum.set(k, {
+            minYBottom: seg.yBottom,
+            maxYBottom: seg.yBottom,
+            anyProtectedWall: isProtWall,
+            anyNarrow: contour.isNarrowCorridor,
+            firstOverhang: cls.allowOverhang,
+            overhangDiffers: false,
+            firstTalus: cls.allowTalus,
+            talusDiffers: false,
+          });
+        } else {
+          if (seg.yBottom < existing.minYBottom) existing.minYBottom = seg.yBottom;
+          if (seg.yBottom > existing.maxYBottom) existing.maxYBottom = seg.yBottom;
+          if (isProtWall) existing.anyProtectedWall = true;
+          if (contour.isNarrowCorridor) existing.anyNarrow = true;
+          if (cls.allowOverhang !== existing.firstOverhang) existing.overhangDiffers = true;
+          if (cls.allowTalus !== existing.firstTalus) existing.talusDiffers = true;
+        }
+      }
+    }
+  }
+
+  const out = new Map<string, VertexEndpointConstraint>();
+  for (const [k, v] of accum) {
+    out.set(k, {
+      minYBottom: v.minYBottom,
+      maxYBottom: v.maxYBottom,
+      anyProtectedWall: v.anyProtectedWall,
+      anyNarrow: v.anyNarrow,
+      dropMismatch: v.maxYBottom - v.minYBottom > 0.02,
+      overhangDiffers: v.overhangDiffers,
+      talusDiffers: v.talusDiffers,
+    });
+  }
+  return out;
+}
+
 export class RockyCliffBuildContext {
   readonly map: MapDef;
   readonly analysis: TerrainContourAnalysis;
   private readonly miterMap: Map<string, MiterVertexInfo>;
+  private readonly constraintMap: Map<string, VertexEndpointConstraint>;
 
   constructor(map: MapDef, analysis: TerrainContourAnalysis) {
     this.map = map;
     this.analysis = analysis;
     this.miterMap = buildGlobalMiterLookup(map, analysis);
+    this.constraintMap = buildVertexConstraintLookup(map, analysis);
   }
 
   getMiterAt(x: number, z: number, fallbackNx: number, fallbackNz: number): MiterVertexInfo {
@@ -844,6 +913,10 @@ export class RockyCliffBuildContext {
         protectedCorner: true,
       }
     );
+  }
+
+  getVertexConstraint(x: number, z: number, level: number): VertexEndpointConstraint | null {
+    return this.constraintMap.get(`${vertexKey(x, z)}@${level}`) ?? null;
   }
 }
 
@@ -884,6 +957,25 @@ export function appendTileRockyCliffs(
 
     const miterA = ctx.getMiterAt(seg.ax, seg.az, segNx, segNz);
     const miterB = ctx.getMiterAt(seg.bx, seg.bz, segNx, segNz);
+    const constraintA = ctx.getVertexConstraint(seg.ax, seg.az, contour.level);
+    const constraintB = ctx.getVertexConstraint(seg.bx, seg.bz, contour.level);
+
+    const protectedA = Boolean(
+      miterA.protectedCorner ||
+        constraintA?.anyProtectedWall ||
+        constraintA?.dropMismatch
+    );
+    const protectedB = Boolean(
+      miterB.protectedCorner ||
+        constraintB?.anyProtectedWall ||
+        constraintB?.dropMismatch
+    );
+    const narrowA = Boolean(contour.isNarrowCorridor || constraintA?.anyNarrow);
+    const narrowB = Boolean(contour.isNarrowCorridor || constraintB?.anyNarrow);
+    const allowOverhangA = classification.allowOverhang && !(constraintA?.overhangDiffers ?? false);
+    const allowOverhangB = classification.allowOverhang && !(constraintB?.overhangDiffers ?? false);
+    const allowTalusA = classification.allowTalus && !(constraintA?.talusDiffers ?? false);
+    const allowTalusB = classification.allowTalus && !(constraintB?.talusDiffers ?? false);
 
     const nodesA = buildProfileColumnNodes(
       seg.ax,
@@ -891,8 +983,10 @@ export function appendTileRockyCliffs(
       yTop,
       seg.yBottom,
       miterA.safeOutward,
-      miterA.protectedCorner,
-      contour.isNarrowCorridor,
+      protectedA,
+      narrowA,
+      allowOverhangA,
+      allowTalusA,
       seed,
       classification
     );
@@ -902,8 +996,10 @@ export function appendTileRockyCliffs(
       yTop,
       seg.yBottom,
       miterB.safeOutward,
-      miterB.protectedCorner,
-      contour.isNarrowCorridor,
+      protectedB,
+      narrowB,
+      allowOverhangB,
+      allowTalusB,
       seed,
       classification
     );
@@ -930,8 +1026,11 @@ export function appendTileRockyCliffs(
 
       const yCrest = Math.min(shoulderNodeA.y, shoulderNodeB.y);
       const hasLip =
-        nodesA.some((n) => n.bandKind === 'overhang_lip') &&
-        nodesB.some((n) => n.bandKind === 'overhang_lip');
+        classification.allowOverhang &&
+        !narrowA &&
+        !narrowB &&
+        nodesA.some((n) => n.bandKind === 'overhang_lip' && n.s > 0.005) &&
+        nodesB.some((n) => n.bandKind === 'overhang_lip' && n.s > 0.005);
       const yLipBottom = hasLip ? Math.min(lipNodeA.y, lipNodeB.y) : yCrest;
       const talusTopA =
         nodesA.length >= 2 ? nodesA[nodesA.length - 2].y : seg.yBottom;
@@ -978,9 +1077,9 @@ export function appendTileRockyCliffs(
     }
 
     const inwardCap =
-      miterA.protectedCorner || miterB.protectedCorner
+      protectedA || protectedB
         ? 0.015
-        : contour.isNarrowCorridor
+        : narrowA || narrowB
           ? 0.045
           : 0.11;
     const midSafeOutward = Math.min(miterA.safeOutward, miterB.safeOutward);

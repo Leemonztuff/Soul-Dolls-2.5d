@@ -345,7 +345,7 @@ export function updatePropBatchAnimation(
       atlasDef?.category === 'structure' ||
       atlasDef?.category === 'decor';
 
-    if (!isGrass && !isFixedDecor && g.lastYaw === yaw) {
+    if (!isGrass && (isFixedDecor || g.lastYaw === yaw)) {
       continue;
     }
 
