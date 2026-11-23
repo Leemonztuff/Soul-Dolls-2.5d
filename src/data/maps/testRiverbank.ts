@@ -100,7 +100,9 @@ export const MAP_TEST_RIVERBANK: MapDef = {
   props: [
     { kind: 'lamp_wood', x: 9, z: 25 },
     { kind: 'oak', x: 3, z: 20 },
+    { kind: 'atlas_arbolmanzano_00', x: 2, z: 18 },
     { kind: 'pine', x: 26, z: 22 },
+    { kind: 'atlas_arbolmanzano_00', x: 28, z: 20 },
     { kind: 'boulder', x: 23, z: 27 },
     { kind: 'lamp_stone', x: 14, z: 5 },
   ],

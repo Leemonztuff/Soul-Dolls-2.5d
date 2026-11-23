@@ -128,7 +128,50 @@ export const PROP_CATEGORY_DEFAULTS: Record<PropAssetCategory, PropCategoryDefau
 };
 
 // Generated entries from Sprite Studio -> Assets are pasted here.
-export const PROP_ATLAS_REGISTRY: readonly PropAtlasDef[] = [];
+export const PROP_ATLAS_REGISTRY: readonly PropAtlasDef[] = [
+  {
+    kind: 'atlas_arbolmanzano_00',
+    label: 'arbolmanzano 00',
+    category: 'tree',
+    sheetPath: '/assets/props/tree/arbolmanzano.webp',
+    col: 0,
+    row: 0,
+    cols: 1,
+    rows: 1,
+    width: 2.4,
+    height: 2.2,
+    windAmp: 0.05,
+    occludable: true,
+    solid: true,
+    grass: true,
+  },
+  {
+    kind: 'atlas_banco_00',
+    label: 'banco 00',
+    category: 'decor',
+    sheetPath: '/assets/props/decor/banco.webp',
+    col: 0,
+    row: 0,
+    cols: 1,
+    rows: 1,
+    width: 1,
+    height: 1,
+    shadow: true,
+    solid: true,
+  },
+  {
+    kind: 'atlas_cerca_00',
+    label: 'cerca 00',
+    category: 'decor',
+    sheetPath: '/assets/props/decor/cerca.webp',
+    col: 0,
+    row: 0,
+    cols: 1,
+    rows: 1,
+    width: 1,
+    height: 1,
+  },
+];
 
 const REGISTRY_BY_KIND = new Map<string, PropAtlasDef>(
   PROP_ATLAS_REGISTRY.map((entry) => [entry.kind, entry])
