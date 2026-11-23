@@ -233,3 +233,355 @@ export function finalizeZone(z: ZoneCanvas): { grid: string[]; heights: string[]
     heights: z.heights.map((row) => row.join('')),
   };
 }
+
+function clampInt(v: number, min: number, max: number): number {
+  const r = Math.round(v);
+  return r < min ? min : r > max ? max : r;
+}
+
+function hash2D(ix: number, iy: number, seed: number): number {
+  let h =
+    (Math.imul(ix | 0, 374761393) +
+      Math.imul(iy | 0, 668265263) +
+      Math.imul(seed | 0, 1597334677)) |
+    0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) | 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function valueNoise2D(x: number, y: number, seed: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  const a = hash2D(ix, iy, seed);
+  const b = hash2D(ix + 1, iy, seed);
+  const c = hash2D(ix, iy + 1, seed);
+  const d = hash2D(ix + 1, iy + 1, seed);
+  return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+}
+
+export function fbmNoise2D(x: number, y: number, seed: number): number {
+  return (
+    valueNoise2D(x, y, seed) * 0.65 +
+    valueNoise2D(x * 2.13 + 7.3, y * 2.13 - 4.1, seed + 31) * 0.35
+  );
+}
+
+const DEFAULT_PROTECTED_TILES = new Set(['^', 'B', '=', 'A']);
+
+export interface OrganicShapeOptions {
+  jitter?: number;
+  seed?: number;
+  heightMode?: 'set' | 'max' | 'min';
+  preserveProtected?: boolean;
+  borderMargin?: number;
+}
+
+/**
+ * Stamps an organic elliptical/lobed region using multi-octave noise so cliff plateaus,
+ * lakes, clearings, and tall-grass glades form curved bays and promontories instead of boxes.
+ */
+export function addOrganicPlateau(
+  z: ZoneCanvas,
+  cx: number,
+  cy: number,
+  rx: number,
+  rz: number,
+  heightVal?: number,
+  tile?: string,
+  opts: OrganicShapeOptions = {}
+): void {
+  const seed = opts.seed ?? 101;
+  const jitter = opts.jitter ?? 0.34;
+  const heightMode = opts.heightMode ?? 'set';
+  const preserveProtected = opts.preserveProtected ?? false;
+  const margin = opts.borderMargin ?? 0;
+
+  const padX = Math.ceil(rx * (1 + jitter)) + 1;
+  const padZ = Math.ceil(rz * (1 + jitter)) + 1;
+  const minX = Math.max(margin, Math.floor(cx - padX));
+  const maxX = Math.min(z.width - 1 - margin, Math.ceil(cx + padX));
+  const minY = Math.max(margin, Math.floor(cy - padZ));
+  const maxY = Math.min(z.height - 1 - margin, Math.ceil(cy + padZ));
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (preserveProtected && DEFAULT_PROTECTED_TILES.has(z.tiles[y][x])) continue;
+      const nx = (x - cx) / Math.max(0.5, rx);
+      const ny = (y - cy) / Math.max(0.5, rz);
+      const radial = Math.hypot(nx, ny);
+      const n = (fbmNoise2D(x * 0.28, y * 0.28, seed) - 0.5) * 2;
+      const threshold = 1.0 + n * jitter;
+      if (radial <= threshold) {
+        if (tile !== undefined) {
+          z.tiles[y][x] = tile;
+        }
+        if (heightVal !== undefined) {
+          const h = clampInt(heightVal, 0, 9);
+          if (heightMode === 'max') {
+            z.heights[y][x] = Math.max(z.heights[y][x], h);
+          } else if (heightMode === 'min') {
+            z.heights[y][x] = Math.min(z.heights[y][x], h);
+          } else {
+            z.heights[y][x] = h;
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Builds an HD-2D Octopath-style undulating mountain perimeter with curved promontories,
+ * stepped cliff shelves, and natural coves instead of a straight rectangular border wall.
+ */
+export function addOrganicPerimeterMountains(
+  z: ZoneCanvas,
+  baseThickness = 4,
+  peakHeight = 8,
+  ridgeTile = '#',
+  seed = 42,
+  opts: {
+    basePlayHeight?: number;
+    shelfTile?: string;
+    amplitude?: number;
+  } = {}
+): void {
+  const basePlayH = opts.basePlayHeight ?? 1;
+  const shelfTile = opts.shelfTile;
+  const amp = opts.amplitude ?? 2.4;
+
+  for (let y = 0; y < z.height; y++) {
+    for (let x = 0; x < z.width; x++) {
+      const n1 = (fbmNoise2D(x * 0.17, y * 0.17, seed) - 0.45) * amp;
+      const n2 = Math.sin(x * 0.31 + y * 0.23 + seed * 0.1) * 0.85;
+      const edgeDist = Math.min(x, y, z.width - 1 - x, z.height - 1 - y);
+      const localThick = Math.max(2.0, baseThickness + n1 + n2);
+
+      if (edgeDist < localThick) {
+        const depthNorm = Math.max(0, Math.min(1, 1 - edgeDist / localThick));
+        const stepped =
+          depthNorm < 0.32
+            ? basePlayH + 1
+            : depthNorm < 0.62
+              ? Math.round(basePlayH + (peakHeight - basePlayH) * 0.55)
+              : peakHeight;
+        const target = Math.max(z.heights[y][x], clampInt(stepped, 0, 9));
+        z.heights[y][x] = target;
+        if (edgeDist <= 1 || depthNorm >= 0.48) {
+          z.tiles[y][x] = ridgeTile;
+        } else if (shelfTile !== undefined) {
+          z.tiles[y][x] = shelfTile;
+        }
+      }
+    }
+  }
+}
+
+export interface SteppedIsletTier {
+  scale: number;
+  height: number;
+  tile: string;
+  offsetX?: number;
+  offsetZ?: number;
+}
+
+/**
+ * Stamps a multi-tiered rounded islet or rocky outcrop (e.g. mossy base shelf -> stone cap -> rock spire),
+ * creating stepped organic silhouettes over water or terrain.
+ */
+export function addSteppedIslet(
+  z: ZoneCanvas,
+  cx: number,
+  cy: number,
+  rx: number,
+  rz: number,
+  tiers: readonly SteppedIsletTier[],
+  seed = 77
+): void {
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    addOrganicPlateau(
+      z,
+      cx + (t.offsetX ?? 0),
+      cy + (t.offsetZ ?? 0),
+      Math.max(0.85, rx * t.scale),
+      Math.max(0.85, rz * t.scale),
+      t.height,
+      t.tile,
+      {
+        jitter: 0.28,
+        seed: seed + i * 19,
+        heightMode: 'set',
+        preserveProtected: true,
+        borderMargin: 1,
+      }
+    );
+  }
+}
+
+function samplePolylinePoint(
+  pts: ReadonlyArray<{ x: number; y: number }>,
+  t: number
+): { x: number; y: number } {
+  if (pts.length === 1) return pts[0];
+  const scaled = Math.max(0, Math.min(pts.length - 1, t * (pts.length - 1)));
+  const idx = Math.min(pts.length - 2, Math.floor(scaled));
+  const localT = scaled - idx;
+  const p0 = pts[Math.max(0, idx - 1)];
+  const p1 = pts[idx];
+  const p2 = pts[idx + 1];
+  const p3 = pts[Math.min(pts.length - 1, idx + 2)];
+
+  // Smooth Catmull-Rom spline interpolation
+  const t2 = localT * localT;
+  const t3 = t2 * localT;
+  const x =
+    0.5 *
+    (2 * p1.x +
+      (-p0.x + p2.x) * localT +
+      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+  const y =
+    0.5 *
+    (2 * p1.y +
+      (-p0.y + p2.y) * localT +
+      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+  return { x, y };
+}
+
+/**
+ * Carves a smoothly curved Catmull-Rom road or dirt trail with organic edge variation,
+ * avoiding rigid 90-degree path segments while preserving stairs and bridges.
+ */
+export function carveOrganicRoad(
+  z: ZoneCanvas,
+  waypoints: ReadonlyArray<{ x: number; y: number }>,
+  width = 2,
+  tile = ',',
+  targetHeight?: number,
+  seed = 13
+): void {
+  if (waypoints.length < 2) return;
+  let totalLen = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    totalLen += Math.hypot(waypoints[i].x - waypoints[i - 1].x, waypoints[i].y - waypoints[i - 1].y);
+  }
+  const steps = Math.max(12, Math.ceil(totalLen * 3));
+  const halfR = Math.max(0.65, width * 0.5);
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p = samplePolylinePoint(waypoints, t);
+    const sway = (fbmNoise2D(p.x * 0.25, p.y * 0.25, seed) - 0.5) * 0.45;
+    const rEff = halfR + Math.max(-0.15, sway);
+    const minX = Math.max(1, Math.floor(p.x - rEff));
+    const maxX = Math.min(z.width - 2, Math.ceil(p.x + rEff));
+    const minY = Math.max(1, Math.floor(p.y - rEff));
+    const maxY = Math.min(z.height - 2, Math.ceil(p.y + rEff));
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        if (Math.hypot(px - p.x, py - p.y) <= rEff + 0.15) {
+          const cur = z.tiles[py][px];
+          if (cur === '^' || cur === 'B') continue;
+          z.tiles[py][px] = tile;
+          if (targetHeight !== undefined) {
+            z.heights[py][px] = clampInt(targetHeight, 0, 9);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Carves a meandering natural river/stream with curved banks and variable channel width.
+ */
+export function carveWindingRiver(
+  z: ZoneCanvas,
+  waypoints: ReadonlyArray<{ x: number; y: number }>,
+  halfWidth = 2.0,
+  waterHeight = 0,
+  opts: {
+    waterTile?: string;
+    bankTile?: string;
+    bankHeight?: number;
+    bankMargin?: number;
+    seed?: number;
+    preserveProtected?: boolean;
+  } = {}
+): void {
+  if (waypoints.length < 2) return;
+  const waterTile = opts.waterTile ?? '~';
+  const bankTile = opts.bankTile;
+  const bankHeight = opts.bankHeight;
+  const bankMargin = opts.bankMargin ?? 1.4;
+  const seed = opts.seed ?? 99;
+  const preserveProtected = opts.preserveProtected ?? true;
+
+  let totalLen = 0;
+  for (let i = 1; i < waypoints.length; i++) {
+    totalLen += Math.hypot(waypoints[i].x - waypoints[i - 1].x, waypoints[i].y - waypoints[i - 1].y);
+  }
+  const steps = Math.max(20, Math.ceil(totalLen * 3));
+
+  for (let i = 0; i <= steps; i++) {
+    const p = samplePolylinePoint(waypoints, i / steps);
+    const n = (fbmNoise2D(p.x * 0.22, p.y * 0.22, seed) - 0.5) * 1.1;
+    const rWater = Math.max(1.0, halfWidth + n);
+    const rOuter = rWater + bankMargin;
+
+    const minX = Math.max(1, Math.floor(p.x - rOuter - 1));
+    const maxX = Math.min(z.width - 2, Math.ceil(p.x + rOuter + 1));
+    const minY = Math.max(1, Math.floor(p.y - rOuter - 1));
+    const maxY = Math.min(z.height - 2, Math.ceil(p.y + rOuter + 1));
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const cur = z.tiles[py][px];
+        if (preserveProtected && DEFAULT_PROTECTED_TILES.has(cur)) continue;
+        const d = Math.hypot(px - p.x, py - p.y);
+        if (d <= rWater) {
+          z.tiles[py][px] = waterTile;
+          z.heights[py][px] = clampInt(waterHeight, 0, 9);
+        } else if (d <= rOuter && cur !== waterTile) {
+          if (bankTile !== undefined && cur !== '=') {
+            z.tiles[py][px] = bankTile;
+          }
+          if (bankHeight !== undefined && z.heights[py][px] > bankHeight) {
+            z.heights[py][px] = clampInt(bankHeight, 0, 9);
+          }
+        }
+      }
+    }
+  }
+}
+
+export {
+  addSteppedOutcropCluster,
+  applyNoiseElevationField,
+  carveNoisePath,
+  carveVariedRoom,
+  domainWarp2D,
+  evaluateVariedRoomMask,
+  generateNoisePolyline,
+  generateNoiseWorldMap,
+  type GuaranteedCellSpec,
+  type NoiseBridgeSpec,
+  type NoiseElevationFieldSpec,
+  type NoiseIsletSpec,
+  type NoiseLakeSpec,
+  type NoiseOutcropClusterSpec,
+  type NoisePathSpec,
+  type NoiseRiverSpec,
+  type NoiseRoomSpec,
+  type NoiseStairRunSpec,
+  type NoiseWorldMapSpec,
+  type RoomShapeArchetype,
+} from './noiseWorldGen.ts';
+

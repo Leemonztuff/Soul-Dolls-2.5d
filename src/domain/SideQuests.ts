@@ -239,7 +239,7 @@ export const SIDE_QUESTS: readonly SideQuestDef[] = [
       'Demuestra tu temple en la Arena Cumbre alcanzando 6 victorias totales y venciendo a la Discípula Sofía.',
     giverNpcId: 'arena_guide_npc',
     giverName: 'Árbitro Leo',
-    mapId: 'arena_cumbre',
+    mapId: 'liga_cumbre',
     offerDialogue:
       'Antes de desafiar a la Líder Valeria, supera la prueba del atrio: vence a la Discípula Sofía y acumula 6 victorias. ¡Te espera una fortuna en Oro y el Plano maestro del Coloso de Obsidiana!',
     progressDialogue:

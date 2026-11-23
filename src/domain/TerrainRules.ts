@@ -141,3 +141,127 @@ export function relativeSpriteDir(worldDir: Direction, yawStep: number): Directi
   const idx = dirs.indexOf(worldDir);
   return dirs[(idx + normStep) % 4];
 }
+
+export function isWithinHiddenSparkleRange(
+  ax: number,
+  az: number,
+  px: number,
+  pz: number,
+  maxDist = 5
+): boolean {
+  return Math.hypot(ax - px, az - pz) <= maxDist;
+}
+
+export function isStandingTileValid(
+  map: MapDef,
+  x: number,
+  y: number
+): boolean {
+  const height = map.grid.length;
+  const width = map.grid[0]?.length ?? 0;
+  if (y < 0 || y >= height || x < 0 || x >= width) {
+    return false;
+  }
+  const ch = map.grid[y][x];
+  const leg = map.legend[ch];
+  if (!leg || leg.solid || leg.tile === 'water') {
+    return false;
+  }
+  if (isInsideBuilding(map.buildings, x, y)) {
+    return false;
+  }
+  if (map.props.some((p) => p.x === x && p.z === y)) {
+    return false;
+  }
+  if (map.signs.some((s) => s.x === x && s.y === y)) {
+    return false;
+  }
+  if (map.badgeGates?.some((g) => g.x === x && g.y === y)) {
+    return false;
+  }
+  if (map.npcs.some((n) => !n.flagHidden && !n.flagRequired && n.x === x && n.y === y)) {
+    return false;
+  }
+  return true;
+}
+
+function hasWalkableEscape(map: MapDef, x: number, y: number): boolean {
+  const dirs: readonly [number, number][] = [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ];
+  for (const [dx, dy] of dirs) {
+    const nx = x + dx;
+    const ny = y + dy;
+    if (isStandingTileValid(map, nx, ny) && isTileWalkable(map, x, y, nx, ny)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export interface RelocatedSpawnResult {
+  mapId: string;
+  x: number;
+  y: number;
+  relocated: boolean;
+}
+
+export function validateAndRelocateSpawn(
+  mapId: string,
+  x: number,
+  y: number,
+  maps: Record<string, MapDef>,
+  fallback: { mapId: string; x: number; y: number } = {
+    mapId: 'villa_origen',
+    x: 24,
+    y: 26,
+  }
+): RelocatedSpawnResult {
+  const map = maps[mapId];
+  if (!map) {
+    const fbMap = maps[fallback.mapId];
+    if (fbMap && isStandingTileValid(fbMap, fallback.x, fallback.y)) {
+      return { mapId: fallback.mapId, x: fallback.x, y: fallback.y, relocated: true };
+    }
+    return { mapId: fallback.mapId, x: fallback.x, y: fallback.y, relocated: true };
+  }
+
+  const rx = Math.round(x);
+  const ry = Math.round(y);
+  if (isStandingTileValid(map, rx, ry) && hasWalkableEscape(map, rx, ry)) {
+    return { mapId, x: rx, y: ry, relocated: false };
+  }
+
+  const height = map.grid.length;
+  const width = map.grid[0]?.length ?? 0;
+  const maxR = Math.max(width, height);
+  const seedX = Math.max(0, Math.min(width - 1, rx));
+  const seedY = Math.max(0, Math.min(height - 1, ry));
+
+  for (let r = 1; r <= maxR; r++) {
+    let best: { x: number; y: number; dist2: number } | null = null;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        const cx = seedX + dx;
+        const cy = seedY + dy;
+        if (!isStandingTileValid(map, cx, cy) || !hasWalkableEscape(map, cx, cy)) {
+          continue;
+        }
+        const d2 = dx * dx + dy * dy;
+        if (!best || d2 < best.dist2) {
+          best = { x: cx, y: cy, dist2: d2 };
+        }
+      }
+    }
+    if (best) {
+      return { mapId, x: best.x, y: best.y, relocated: true };
+    }
+  }
+
+  // Fallback to primary city plaza if no valid tile exists on the map
+  return { mapId: fallback.mapId, x: fallback.x, y: fallback.y, relocated: true };
+}

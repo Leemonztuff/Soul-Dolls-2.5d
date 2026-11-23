@@ -2,157 +2,445 @@ import type { MapDef } from '../../domain/types.ts';
 import { hexToNumber, PALETTE } from '../../gfx/Palette.ts';
 import { ENCOUNTERS } from '../encounters.ts';
 import {
-  addHill,
-  addPerimeterMountains,
-  carveMapPass,
-  carveRoad,
-  createZoneCanvas,
   DEFAULT_LEGEND,
-  fillRect,
-  finalizeZone,
+  generateNoiseWorldMap,
 } from './mapBuilder.ts';
 
-function buildRuta1() {
-  const z = createZoneCanvas(48, 56, '.', 2);
-
-  addPerimeterMountains(z, 5, 7, '#');
-  addHill(z, 11, 15, 9, 4);
-  addHill(z, 36, 22, 10, 4);
-  addHill(z, 13, 39, 9, 3);
-  addHill(z, 35, 42, 8, 3);
-
-  // Winding dirt path from south (23,55) to north (23,0)
-  carveRoad(z, 23, 55, 23, 42, 2, ',', 2);
-  carveRoad(z, 23, 42, 16, 32, 2, ',', 2);
-  carveRoad(z, 16, 32, 16, 22, 2, ',', 3);
-  carveRoad(z, 16, 22, 28, 16, 2, ',', 3);
-  carveRoad(z, 28, 16, 23, 7, 2, ',', 2);
-  carveRoad(z, 23, 7, 23, 0, 2, ',', 2);
-
-  // Ramp transitions on gentle hill
-  fillRect(z, 16, 26, 2, 2, '^', 2);
-  fillRect(z, 26, 15, 2, 2, '^', 2);
-
-  // Tall grass encounter clearings
-  fillRect(z, 18, 43, 8, 5, '"', 2);
-  fillRect(z, 12, 25, 6, 6, '"', 3);
-  fillRect(z, 24, 24, 9, 6, '"', 2);
-  fillRect(z, 16, 8, 9, 6, '"', 2);
-
-  // Pond and flowers
-  fillRect(z, 31, 31, 6, 5, '~', 1);
-  fillRect(z, 27, 45, 5, 4, '*', 2);
-  fillRect(z, 28, 8, 5, 4, '*', 2);
-
-  // Smooth valley passes at south & north exits
-  carveMapPass(z, {
-    x: 23,
-    y: 55,
-    exitDir: 'south',
-    roadTile: ',',
-    height: 2,
-    depth: 8,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: '.',
+function buildRuta1Terrain() {
+  return generateNoiseWorldMap({
+    width: 52,
+    height: 60,
+    seed: 202,
+    baseTile: '.',
+    baseHeight: 1,
+    perimeter: {
+      thickness: 5.2,
+      peakHeight: 8,
+      ridgeTile: '#',
+      shelfTile: '.',
+      amplitude: 3.2,
+      seed: 202,
+    },
+    noiseField: {
+      seed: 207,
+      baseHeight: 1,
+      maxHeight: 3,
+      scale: 0.095,
+      warpAmp: 2.6,
+      ridgeThreshold: 0.62,
+      highTile: '.',
+      ridgeTile: '#',
+      borderMargin: 4,
+    },
+    rooms: [
+      // South Trailhead Glade (winding meadow)
+      {
+        cx: 23.5,
+        cy: 51.0,
+        rx: 8.2,
+        rz: 5.6,
+        height: 1,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: -0.22,
+        distortion: 0.36,
+        seed: 211,
+      },
+      // Central Forest Amphitheater (tiered clearing with organic mossy shoulders)
+      {
+        cx: 24.5,
+        cy: 39.0,
+        rx: 7.4,
+        rz: 6.2,
+        height: 1,
+        tile: '.',
+        shape: 'tiered_amphitheater',
+        lobes: 5,
+        distortion: 0.36,
+        seed: 219,
+      },
+      // Mid-North Valley Sanctuary
+      {
+        cx: 24.5,
+        cy: 26.5,
+        rx: 6.8,
+        rz: 6.5,
+        height: 1,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 5,
+        distortion: 0.38,
+        seed: 223,
+      },
+      // Northern Rival Crag Sanctuary
+      {
+        cx: 26.0,
+        cy: 14.8,
+        rx: 7.6,
+        rz: 6.0,
+        height: 1,
+        tile: '.',
+        shape: 'craggy_sanctuary',
+        lobes: 5,
+        distortion: 0.36,
+        rimHeight: 2,
+        rimTile: '.',
+        seed: 229,
+      },
+      // Eastern Lakeside Crescent Cove
+      {
+        cx: 38.5,
+        cy: 26.5,
+        rx: 5.8,
+        rz: 7.8,
+        height: 1,
+        tile: '.',
+        shape: 'crescent',
+        angle: Math.PI,
+        distortion: 0.34,
+        seed: 233,
+      },
+      // Secret Western Woodland Grotto (varied winding corridor & alcoves)
+      {
+        cx: 9.8,
+        cy: 27.5,
+        rx: 3.4,
+        rz: 14.5,
+        height: 1,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: 0.08,
+        distortion: 0.42,
+        seed: 239,
+      },
+      {
+        cx: 10.5,
+        cy: 15.5,
+        rx: 4.5,
+        rz: 3.6,
+        height: 1,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 4,
+        distortion: 0.36,
+        seed: 241,
+      },
+      {
+        cx: 13.0,
+        cy: 43.0,
+        rx: 4.8,
+        rz: 3.6,
+        height: 1,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 4,
+        distortion: 0.34,
+        seed: 243,
+      },
+    ],
+    waterBodies: [
+      {
+        kind: 'river',
+        waypoints: [
+          { x: 34, y: 42 },
+          { x: 30.8, y: 34 },
+          { x: 34.5, y: 27 },
+          { x: 31.2, y: 20 },
+          { x: 34.5, y: 12 },
+        ],
+        halfWidth: 2.1,
+        waterHeight: 0,
+        waterTile: '~',
+        bankTile: '.',
+        bankHeight: 1,
+        bankMargin: 1.5,
+        seed: 245,
+      },
+      {
+        kind: 'lake',
+        cx: 33.0,
+        cy: 29.5,
+        rx: 4.6,
+        rz: 5.0,
+        waterHeight: 0,
+        waterTile: '~',
+        jitter: 0.38,
+        borderMargin: 5,
+        seed: 251,
+      },
+    ],
+    islets: [
+      {
+        cx: 33.0,
+        cy: 30.5,
+        rx: 2.2,
+        rz: 2.0,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.54, height: 3, tile: '#' },
+        ],
+        seed: 261,
+      },
+      {
+        cx: 33.8,
+        cy: 22.0,
+        rx: 1.9,
+        rz: 1.7,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.54, height: 3, tile: '#' },
+        ],
+        seed: 271,
+      },
+      {
+        cx: 31.2,
+        cy: 26.2,
+        rx: 1.4,
+        rz: 1.3,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.55, height: 2, tile: '#' },
+        ],
+        seed: 275,
+      },
+    ],
+    outcropClusters: [
+      // Separating western secret grotto with stepped natural rock pedestals instead of straight walls
+      { cx: 14.2, cy: 23.0, count: 3, spread: 2.6, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 281 },
+      { cx: 14.4, cy: 31.0, count: 3, spread: 2.6, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 289 },
+      { cx: 43.5, cy: 37.0, count: 3, spread: 3.0, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 293 },
+      { cx: 43.0, cy: 14.5, count: 3, spread: 2.8, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 297 },
+      { cx: 29.2, cy: 42.0, count: 2, spread: 1.8, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 299 },
+    ],
+    passes: [
+      {
+        x: 25,
+        y: 0,
+        exitDir: 'south',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 1,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+      {
+        x: 25,
+        y: 0,
+        exitDir: 'north',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 1,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+    ],
+    bridges: [
+      // Short bridges spanning only the stream width
+      { x: 29, y: 34, w: 5, h: 2, height: 1, tile: 'B' },
+      { x: 30, y: 18, w: 5, h: 2, height: 1, tile: 'B' },
+    ],
+    paths: [
+      // Main meandering S-curve dirt path with breathing width
+      {
+        waypoints: [
+          { x: 25.5, y: 54 },
+          { x: 22.0, y: 46 },
+          { x: 27.5, y: 37 },
+          { x: 22.2, y: 27 },
+          { x: 27.5, y: 18 },
+          { x: 25.5, y: 5 },
+        ],
+        baseWidth: 2.3,
+        meanderAmp: 2.5,
+        meanderFreq: 0.14,
+        widthBreath: 0.42,
+        tile: ',',
+        height: 1,
+        seed: 205,
+      },
+      // Eastern creek loop crossing both bridges
+      {
+        waypoints: [
+          { x: 26.5, y: 35.5 },
+          { x: 29.0, y: 34.5 },
+          { x: 34.0, y: 34.5 },
+          { x: 38.5, y: 31.0 },
+          { x: 39.0, y: 24.5 },
+          { x: 35.0, y: 18.5 },
+          { x: 30.0, y: 18.5 },
+          { x: 26.5, y: 16.5 },
+        ],
+        baseWidth: 2.0,
+        meanderAmp: 1.9,
+        meanderFreq: 0.15,
+        widthBreath: 0.35,
+        tile: ',',
+        height: 1,
+        seed: 219,
+      },
+      // Non-linear secret western woodland trail
+      {
+        waypoints: [
+          { x: 23.0, y: 45 },
+          { x: 14.0, y: 44 },
+          { x: 9.8, y: 36 },
+          { x: 9.8, y: 26 },
+          { x: 8.8, y: 16 },
+          { x: 14.5, y: 11.5 },
+          { x: 24.0, y: 12 },
+        ],
+        baseWidth: 1.9,
+        meanderAmp: 1.8,
+        meanderFreq: 0.16,
+        widthBreath: 0.36,
+        tile: ',',
+        height: 1,
+        seed: 227,
+      },
+    ],
+    glades: [
+      { cx: 38, cy: 25, rx: 3.8, rz: 4.5, height: 1, tile: '"', shape: 'lobed', distortion: 0.38, seed: 241 },
+      { cx: 20, cy: 39, rx: 3.6, rz: 4.0, height: 1, tile: '"', shape: 'lobed', distortion: 0.36, seed: 243 },
+      { cx: 20, cy: 24, rx: 3.4, rz: 4.0, height: 1, tile: '"', shape: 'crescent', distortion: 0.36, seed: 247 },
+      { cx: 34, cy: 46, rx: 4.0, rz: 3.4, height: 1, tile: '"', shape: 'winding_meadow', distortion: 0.34, seed: 257 },
+      { cx: 32, cy: 11, rx: 3.8, rz: 2.8, height: 1, tile: '*', shape: 'lobed', distortion: 0.36, seed: 263 },
+      { cx: 9, cy: 27, rx: 2.2, rz: 2.6, height: 1, tile: '*', shape: 'lobed', distortion: 0.3, seed: 269 },
+    ],
+    guaranteedCells: [
+      // Botánica Clara patrol (19..22, 52) & NPCs/pickups
+      { x: 19, y: 52, tile: ',', height: 1 },
+      { x: 20, y: 52, tile: ',', height: 1 },
+      { x: 21, y: 52, tile: ',', height: 1 },
+      { x: 22, y: 52, tile: ',', height: 1 },
+      { x: 24, y: 41, tile: ',', height: 1 },
+      { x: 37, y: 28, tile: '.', height: 1 },
+      { x: 26, y: 16, tile: ',', height: 1 },
+      { x: 39, y: 24, tile: '.', height: 1 },
+      { x: 35, y: 47, tile: '.', height: 1 },
+      { x: 19, y: 24, tile: '.', height: 1 },
+      { x: 9, y: 27, tile: '*', height: 1 },
+      { x: 8, y: 16, tile: '.', height: 1 },
+      { x: 10, y: 34, tile: ',', height: 1 },
+      { x: 23, y: 53, tile: '.', height: 1 },
+      // Bridge landings
+      { x: 28, y: 34, tile: ',', height: 1 },
+      { x: 28, y: 35, tile: ',', height: 1 },
+      { x: 34, y: 34, tile: ',', height: 1 },
+      { x: 34, y: 35, tile: ',', height: 1 },
+      { x: 29, y: 18, tile: ',', height: 1 },
+      { x: 29, y: 19, tile: ',', height: 1 },
+      { x: 35, y: 18, tile: ',', height: 1 },
+      { x: 35, y: 19, tile: ',', height: 1 },
+    ],
   });
-  carveMapPass(z, {
-    x: 23,
-    y: 0,
-    exitDir: 'north',
-    roadTile: ',',
-    height: 2,
-    depth: 8,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: '.',
-  });
-
-  return finalizeZone(z);
 }
 
-const built = buildRuta1();
+const { grid, heights } = buildRuta1Terrain();
 
 export const MAP_RUTA_1: MapDef = {
   id: 'ruta_1',
   nameKey: 'ruta_1',
-  biome: 'meadow',
+  biome: 'forest',
   music: 'route',
-  skyTopColor: hexToNumber(PALETTE.vibrantAqua),
+  skyTopColor: hexToNumber(PALETTE.oceanicTeal),
   skyBottomColor: hexToNumber(PALETTE.frostedGlass),
   fogColor: hexToNumber(PALETTE.iceCyan),
-  snowLine: 8,
-  grid: built.grid,
-  heights: built.heights,
+  grid,
+  heights,
   legend: DEFAULT_LEGEND,
   buildings: [],
   props: [
-    { kind: 'lamp_wood', x: 22, z: 50 },
-    { kind: 'stump', x: 26, z: 38 },
-    { kind: 'mushroom', x: 14, z: 36 },
-    { kind: 'mushroom_tree', x: 13, z: 35 },
-    { kind: 'mushroom_tree_arcane', x: 34, z: 24 },
-    { kind: 'atlas_banco_00', x: 29, z: 30 },
-    { kind: 'atlas_cerca_00', x: 20, z: 40 },
-    { kind: 'atlas_cerca_00', x: 21, z: 40 },
-    { kind: 'lamp_wood', x: 25, z: 50 },
-    { kind: 'atlas_cerca_00', x: 21, z: 53 },
-    { kind: 'atlas_cerca_00', x: 26, z: 53 },
-    { kind: 'lamp_wood', x: 21, z: 3 },
-    { kind: 'lamp_wood', x: 26, z: 3 },
+    { kind: 'oak', x: 20, z: 47 },
+    { kind: 'birch', x: 31, z: 39 },
+    { kind: 'pine', x: 15, z: 28 },
+    { kind: 'oak', x: 43, z: 26 },
+    { kind: 'lamp_wood', x: 23, z: 50 },
+    { kind: 'lamp_wood', x: 23, z: 10 },
+    { kind: 'bench', x: 29, z: 13 },
   ],
   decoration: {
     seed: 202,
-    treeDensity: 0.18,
+    treeDensity: 0.14,
     bushDensity: 0.1,
     flowerDensity: 0.08,
-    rockDensity: 0.04,
+    rockDensity: 0.03,
     mushroomDensity: 0.03,
-    treeKinds: ['oak', 'pine', 'birch', 'mushroom_tree'],
+    treeKinds: ['oak', 'birch', 'pine'],
   },
   warps: [
-    { x: 23, y: 55, targetMap: 'villa_origen', targetX: 23, targetY: 2, dir: 'down' },
-    { x: 24, y: 55, targetMap: 'villa_origen', targetX: 24, targetY: 2, dir: 'down' },
-    { x: 23, y: 0, targetMap: 'pueblo_bruma', targetX: 23, targetY: 45, dir: 'up' },
-    { x: 24, y: 0, targetMap: 'pueblo_bruma', targetX: 24, targetY: 45, dir: 'up' },
+    { x: 25, y: 59, targetMap: 'villa_origen', targetX: 23, targetY: 1, dir: 'down', doorStyle: 'gate' },
+    { x: 26, y: 59, targetMap: 'villa_origen', targetX: 24, targetY: 1, dir: 'down', doorStyle: 'gate' },
+    { x: 25, y: 0, targetMap: 'pueblo_bruma', targetX: 25, targetY: 50, dir: 'up', doorStyle: 'gate' },
+    { x: 26, y: 0, targetMap: 'pueblo_bruma', targetX: 26, targetY: 50, dir: 'up', doorStyle: 'gate' },
   ],
   npcs: [
     {
       id: 'npc_ruta1_scout',
-      name: 'Explorador Lucas',
+      name: 'Lucas',
       role: 'trainer',
-      x: 15,
-      y: 31,
+      x: 24,
+      y: 41,
       dir: 'right',
-      dialogKey: 'trainer',
+      dialogKey: 'sign_ruta1',
       trainerId: 'ruta1_scout',
-      sightRange: 4,
-      patrol: {
-        waypoints: [
-          { x: 15, y: 31 },
-          { x: 15, y: 34 },
-        ],
-        speed: 1.35,
-        pauseSec: 1.6,
-      },
-      lookAtPlayerAfterTalk: true,
+      sightRange: 3,
+    },
+    {
+      id: 'npc_ruta1_exploradora',
+      name: 'Nora',
+      role: 'trainer',
+      x: 37,
+      y: 28,
+      dir: 'right',
+      dialogKey: 'sign_ruta1',
+      trainerId: 'ruta1_exploradora',
+      sightRange: 3,
     },
     {
       id: 'npc_rival_1',
-      name: 'Rival Damián',
+      name: 'Damián',
       role: 'rival',
-      x: 23,
-      y: 6,
+      x: 26,
+      y: 16,
       dir: 'down',
-      dialogKey: 'trainer',
+      dialogKey: 'sign_ruta1',
       trainerId: 'rival_1',
-      sightRange: 3,
+      sightRange: 2,
       flagHidden: 'rival_1_defeated',
     },
+    {
+      id: 'ruta1_caminante',
+      name: 'Botánica Clara',
+      role: 'npc',
+      x: 19,
+      y: 52,
+      dir: 'right',
+      dialogKey: 'sign_ruta1',
+      patrol: {
+        waypoints: [
+          { x: 19, y: 52 },
+          { x: 22, y: 52 },
+        ],
+        speed: 1.3,
+        pauseSec: 2.1,
+      },
+      lookAtPlayerAfterTalk: true,
+    },
   ],
-  signs: [{ x: 22, y: 52, textKey: 'sign_ruta1' }],
+  signs: [
+    { x: 23, y: 53, textKey: 'sign_ruta1' },
+    { x: 10, y: 34, textKey: 'sign_ruta1_secret' },
+  ],
   pickups: [
-    { id: 'ruta1_fragmento', x: 28, y: 12, itemId: 'fragmento_alma', quantity: 1 },
+    { id: 'ruta1_pocion_1', x: 39, y: 24, itemId: 'pocion', quantity: 2 },
+    { id: 'ruta1_capsula_1', x: 35, y: 47, itemId: 'capsula', quantity: 3 },
+    { id: 'ruta1_antidoto_1', x: 19, y: 24, itemId: 'antidoto', quantity: 2 },
+    { id: 'ruta1_oculto_superpocion', x: 9, y: 27, itemId: 'superpocion', quantity: 1, hidden: true },
+    { id: 'ruta1_oculto_fragmento', x: 8, y: 16, itemId: 'fragmento_alma', quantity: 1, hidden: true },
   ],
   encounters: ENCOUNTERS.ruta_1,
 };

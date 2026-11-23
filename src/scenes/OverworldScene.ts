@@ -91,6 +91,7 @@ import {
   isTileWalkable,
   relativeSpriteDir,
   sampleInterpolatedHeight,
+  validateAndRelocateSpawn,
 } from '../domain/TerrainRules.ts';
 import type {
   CharacterFrame,
@@ -342,6 +343,8 @@ export class OverworldScene implements Scene {
   private warpPhase: 'idle' | 'out' | 'in' = 'idle';
   private warpTimer = 0;
   private escortCutscene: VillageEscortCutscene | null = null;
+  private lastBlockedGateKey = '';
+  private lastSpawnRelocated = false;
 
   private readonly sampleTerrain = (wx: number, wz: number): number =>
     sampleInterpolatedHeight(this.currentMap, wx, wz);
@@ -402,6 +405,9 @@ export class OverworldScene implements Scene {
     const save = this.game.saveData;
     ensureSaveVesselState(save);
     ensureSaveSideQuestState(save);
+    if (typeof document !== 'undefined') {
+      document.body.dataset.state = 'playing';
+    }
     this.loadMap(save.mapId, save.playerX, save.playerY, save.playerDir, false);
 
     if (
@@ -427,6 +433,10 @@ export class OverworldScene implements Scene {
       });
     } else if (save.mapId === 'laboratorio_origen') {
       this.maybeStartLabIntroOrEscort();
+    } else if (this.lastSpawnRelocated) {
+      this.lastSpawnRelocated = false;
+      this.game.autosave();
+      this.game.dialog.show(ES.dialogs.spawn_relocated_notice);
     }
   }
 
@@ -1227,13 +1237,18 @@ export class OverworldScene implements Scene {
     for (const c of toRemove) this.scene.remove(c);
     this.mapDisposables.disposeAll();
 
-    const isKnownMap = Boolean(MAPS[mapId] || DEV_MAPS[mapId]);
-    const safeMapId = isKnownMap ? mapId : 'villa_origen';
+    const allMaps: Record<string, MapDef> = { ...MAPS, ...DEV_MAPS };
+    const reloc = validateAndRelocateSpawn(mapId, x, y, allMaps, {
+      mapId: 'villa_origen',
+      x: 24,
+      y: 26,
+    });
+    const safeMapId = reloc.mapId;
     const map = getMap(safeMapId);
-    const maxW = Math.max(0, (map.grid[0]?.length ?? 1) - 1);
-    const maxH = Math.max(0, map.grid.length - 1);
-    const clampedX = isKnownMap ? Math.max(0, Math.min(maxW, Math.round(x))) : 24;
-    const clampedY = isKnownMap ? Math.max(0, Math.min(maxH, Math.round(y))) : 26;
+    const clampedX = reloc.x;
+    const clampedY = reloc.y;
+    this.lastSpawnRelocated = reloc.relocated;
+    this.lastBlockedGateKey = '';
 
     this.currentMap = map;
     this.gridX = clampedX;
@@ -1390,14 +1405,20 @@ export class OverworldScene implements Scene {
       (key) => this.game.assets.getWallNormalTexture(key)
     );
     if (buildingsGroup) {
-      for (const child of buildingsGroup.children) {
-        const mesh = child as THREE.Mesh;
+      buildingsGroup.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        if (!mat || mat.toneMapped !== false) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
         if (mesh.geometry) this.mapDisposables.track(mesh.geometry);
         if (mesh.material && mesh.material !== structureAtlasMat && !Array.isArray(mesh.material)) {
           attachCameraOcclusionCutout(mesh.material, { minRelY: -999 });
           this.mapDisposables.track(mesh.material);
         }
-      }
+      });
       this.scene.add(buildingsGroup);
     }
 
@@ -1497,7 +1518,8 @@ export class OverworldScene implements Scene {
     for (let idx = 0; idx < map.npcs.length; idx++) {
       const npcDef = map.npcs[idx];
       const isStarter = npcDef.starterIndex !== undefined;
-      const isHealMachine = npcDef.id === 'arena_heal';
+      const isHealMachine =
+        npcDef.id === 'arena_heal' || npcDef.id.startsWith('heal_machine');
       const isPedestal = isStarter || isHealMachine;
 
       const relDir = relativeSpriteDir(npcDef.dir, yawStep);
@@ -1617,7 +1639,10 @@ export class OverworldScene implements Scene {
           x: npc.def.x,
           y: py,
           z: npc.def.y,
-          kind: npc.def.id === 'arena_heal' ? 'heal_machine' : 'capsule_pedestal',
+          kind:
+            npc.def.id === 'arena_heal' || npc.def.id.startsWith('heal_machine')
+              ? 'heal_machine'
+              : 'capsule_pedestal',
         });
       }
     }
@@ -1666,6 +1691,16 @@ export class OverworldScene implements Scene {
       map,
       propPlacements,
       extraGlowPoints
+    );
+    this.atmosphere.setHiddenPickups(
+      this.pickups
+        .filter((p) => p.hidden)
+        .map((p) => ({
+          id: p.id,
+          x: p.x,
+          y: getTileWorldY(map, p.x, p.y),
+          z: p.y,
+        }))
     );
     const pShadow = this.atmosphere.createActorShadow(0.76);
     pShadow.position.set(0, 0.02, 0);
@@ -1987,8 +2022,27 @@ export class OverworldScene implements Scene {
     this.sunLight.target.updateMatrixWorld();
   }
 
+  private getMissingBadgeRequirement(nx: number, ny: number): number {
+    const badgesCount = this.game.saveData.badges?.length ?? 0;
+    const gate = this.currentMap.badgeGates?.find(
+      (g) => g.x === nx && g.y === ny && badgesCount < g.requiredBadges
+    );
+    if (gate) return gate.requiredBadges;
+    const warp = this.currentMap.warps.find(
+      (w) =>
+        w.x === nx &&
+        w.y === ny &&
+        w.requiredBadges !== undefined &&
+        badgesCount < w.requiredBadges
+    );
+    return warp?.requiredBadges ?? 0;
+  }
+
   private isTileBlocked(nx: number, ny: number): boolean {
     if (!isTileWalkable(this.currentMap, this.gridX, this.gridY, nx, ny, this.blockedTiles)) {
+      return true;
+    }
+    if (this.getMissingBadgeRequirement(nx, ny) > 0) {
       return true;
     }
     for (let i = 0; i < this.npcs.length; i++) {
@@ -2295,6 +2349,7 @@ export class OverworldScene implements Scene {
       const nx = this.gridX + move.dx;
       const ny = this.gridY + move.dy;
       if (!this.isTileBlocked(nx, ny)) {
+        this.lastBlockedGateKey = '';
         this.moving = true;
         this.moveFromX = this.gridX;
         this.moveFromY = this.gridY;
@@ -2302,8 +2357,19 @@ export class OverworldScene implements Scene {
         this.moveToY = ny;
         this.moveProgress = 0;
       } else {
+        const reqBadges = this.getMissingBadgeRequirement(nx, ny);
+        if (reqBadges > 0) {
+          const gateKey = `${nx},${ny}`;
+          if (this.game.input.justPressed(rawInputDir) || this.lastBlockedGateKey !== gateKey) {
+            this.lastBlockedGateKey = gateKey;
+            this.game.bus.emit('audio:sfx', { sfx: 'bump' });
+            this.game.dialog.show(ES.dialogs.badge_gate_bruma);
+          }
+        }
         this.syncPlayerVisual();
       }
+    } else {
+      this.lastBlockedGateKey = '';
     }
   }
 
@@ -2323,6 +2389,14 @@ export class OverworldScene implements Scene {
       (w) => w.x === this.gridX && w.y === this.gridY
     );
     if (warp) {
+      if (
+        warp.requiredBadges !== undefined &&
+        (this.game.saveData.badges?.length ?? 0) < warp.requiredBadges
+      ) {
+        this.game.bus.emit('audio:sfx', { sfx: 'bump' });
+        this.game.dialog.show(ES.dialogs.badge_gate_bruma);
+        return;
+      }
       if (warp.houseId && !ownsHouse(this.game.saveData, warp.houseId)) {
         this.promptBuyHouse(warp.houseId, warp);
         return;
@@ -2484,11 +2558,32 @@ export class OverworldScene implements Scene {
             if (trainer.setsFlag) {
               this.game.saveData.flags[trainer.setsFlag] = true;
             }
+            let badgeLabel: string | null = null;
+            if (trainer.awardsBadge) {
+              if (!Array.isArray(this.game.saveData.badges)) {
+                this.game.saveData.badges = [];
+              }
+              if (!this.game.saveData.badges.includes(trainer.awardsBadge)) {
+                this.game.saveData.badges.push(trainer.awardsBadge);
+                badgeLabel =
+                  trainer.awardsBadge === 'medalla_bruma'
+                    ? 'Medalla Bruma'
+                    : trainer.awardsBadge === 'medalla_cumbre'
+                      ? 'Medalla Cumbre'
+                      : trainer.awardsBadge;
+              }
+            }
+            if (trainer.isFinalBoss) {
+              this.game.saveData.champion = true;
+            }
             const lootMsg = this.awardTrainerContainerLoot(trainer.isBoss || trainer.isRival);
             this.refreshNpcVisibility();
             this.updateBadge();
             this.game.saveGame();
-            if (lootMsg) {
+            if (badgeLabel) {
+              this.game.bus.emit('audio:sfx', { sfx: 'quest_reward' });
+              this.game.showToast(ES.dialogs.badge_awarded(badgeLabel));
+            } else if (lootMsg) {
               this.game.showToast(lootMsg);
             }
 
@@ -2530,7 +2625,12 @@ export class OverworldScene implements Scene {
     const targetX = hp && MAPS[hp.mapId] ? hp.x : 24;
     const targetY = hp && MAPS[hp.mapId] ? hp.y : 26;
     const targetDir = hp && MAPS[hp.mapId] ? hp.dir : 'up';
-    this.loadMap(targetMap, targetX, targetY, targetDir, true);
+    const reloc = validateAndRelocateSpawn(targetMap, targetX, targetY, MAPS, {
+      mapId: 'villa_origen',
+      x: 24,
+      y: 26,
+    });
+    this.loadMap(reloc.mapId, reloc.x, reloc.y, targetDir, true);
     this.game.dialog.show(ES.battle.blackoutWake);
   }
 
@@ -2556,7 +2656,10 @@ export class OverworldScene implements Scene {
     }
 
     const pickup = this.pickups.find(
-      (p) => !p.hidden && p.mesh?.visible && p.x === tx && p.y === ty
+      (p) =>
+        (p.mesh?.visible && p.x === tx && p.y === ty) ||
+        (p.hidden &&
+          ((p.x === tx && p.y === ty) || (p.x === this.gridX && p.y === this.gridY)))
     );
     if (pickup) {
       this.collectPickup(pickup);
@@ -2733,6 +2836,9 @@ export class OverworldScene implements Scene {
       pickup.mesh.visible = false;
       this.scene.remove(pickup.mesh);
     }
+    if (pickup.hidden) {
+      this.atmosphere?.markHiddenPickupCollected(pickup.id);
+    }
     if (!this.game.saveData.collectedPickups.includes(pickup.id)) {
       this.game.saveData.collectedPickups.push(pickup.id);
     }
@@ -2820,7 +2926,10 @@ export class OverworldScene implements Scene {
     }
 
     if (npc.shopStock) {
-      this.game.dialog.show(ES.dialogs.merchant_mateo, () => {
+      const shopGreeting =
+        ((ES.dialogs as Record<string, unknown>)[npc.dialogKey] as string | undefined) ??
+        ES.dialogs.merchant_mateo;
+      this.game.dialog.show(shopGreeting, () => {
         this.game.openShop(npc.shopStock!, () => {
           this.updateBadge();
         });
@@ -2868,7 +2977,7 @@ export class OverworldScene implements Scene {
         return;
       }
 
-      if (npc.id === 'arena_heal') {
+      if (npc.id === 'arena_heal' || npc.id.startsWith('heal_machine')) {
         healPartyFull(this.game.saveData.party);
         this.recordHealPoint();
         this.game.bus.emit('audio:sfx', { sfx: 'heal' });

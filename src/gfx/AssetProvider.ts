@@ -499,6 +499,25 @@ export class ProceduralAssetProvider implements AssetProvider {
     }
   }
 
+  private refreshWallTextures(isNormal: boolean): void {
+    const cache = isNormal ? this.wallNormalCache : this.wallCache;
+    for (const [key, tex] of cache.entries()) {
+      const cell = SHEET_TILE_MAPPING[key] || EXTRA_TILE_MAPPING[key];
+      if (!cell) continue;
+      if (SHEET_TILE_MAPPING[key]) {
+        const img = isNormal ? this.tileSheetNormalImg : this.tileSheetAlbedoImg;
+        if (img) {
+          this.stampSheetCellToTexture(tex, img, cell.row, cell.col, 1);
+        }
+      } else if (EXTRA_TILE_MAPPING[key]) {
+        const img = isNormal ? this.tileExtraNormalImg : this.tileExtraAlbedoImg;
+        if (img) {
+          this.stampSheetCellToTexture(tex, img, cell.row, cell.col, 1);
+        }
+      }
+    }
+  }
+
   private preloadExternalProps(): void {
     if (typeof Image === 'undefined') return;
 
@@ -554,6 +573,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       this.tileSheetAlbedoImg = albedoSheetImg;
       this.refreshTileAtlasAlbedo();
       this.refreshTerrainLayerTextures(false);
+      this.refreshWallTextures(false);
       if (this.grassTexture) {
         this.stampSheetCellToTexture(this.grassTexture, albedoSheetImg, 0, 0, 2);
       }
@@ -574,6 +594,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       this.tileExtraAlbedoImg = extraAlbedoImg;
       this.refreshTileAtlasAlbedo();
       this.refreshTerrainLayerTextures(false);
+      this.refreshWallTextures(false);
     };
     extraAlbedoImg.src = '/assets/tiles_extra_albedo.png';
 
@@ -583,6 +604,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       this.tileSheetNormalImg = normalSheetImg;
       this.refreshTileAtlasNormal();
       this.refreshTerrainLayerTextures(true);
+      this.refreshWallTextures(true);
       if (this.grassNormalTexture) {
         this.stampSheetCellToTexture(this.grassNormalTexture, normalSheetImg, 0, 0, 2);
       }
@@ -603,6 +625,7 @@ export class ProceduralAssetProvider implements AssetProvider {
       this.tileExtraNormalImg = extraNormalImg;
       this.refreshTileAtlasNormal();
       this.refreshTerrainLayerTextures(true);
+      this.refreshWallTextures(true);
     };
     extraNormalImg.src = '/assets/tiles_extra_normal.png';
 
@@ -1187,6 +1210,18 @@ export class ProceduralAssetProvider implements AssetProvider {
       const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = '#808080';
       ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+
+      // Always seed from procedural tile atlas first so walls never appear flat gray before PNG load
+      const atlas = this.getTileAtlasTexture();
+      const idx = TILE_ATLAS_INDEX[key] ?? 0;
+      const ox = (idx % ATLAS_GRID) * TILE_SIZE;
+      const oy = Math.floor(idx / ATLAS_GRID) * TILE_SIZE;
+      const atlasCanvas = atlas.image as HTMLCanvasElement;
+      if (atlasCanvas && typeof ctx.drawImage === 'function') {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(atlasCanvas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
+      }
+
       tex = new THREE.CanvasTexture(canvas);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.wrapS = THREE.RepeatWrapping;
@@ -1197,26 +1232,12 @@ export class ProceduralAssetProvider implements AssetProvider {
       tex.needsUpdate = true;
       this.wallCache.set(key, tex);
 
-      const cell = SHEET_TILE_MAPPING[key] || EXTRA_TILE_MAPPING[key];
-      if (cell) {
-        if (this.tileSheetAlbedoImg && SHEET_TILE_MAPPING[key]) {
-          this.stampSheetCellToTexture(tex, this.tileSheetAlbedoImg, cell.row, cell.col, 1);
-        } else if (this.tileExtraAlbedoImg && EXTRA_TILE_MAPPING[key]) {
-          this.stampSheetCellToTexture(tex, this.tileExtraAlbedoImg, cell.row, cell.col, 1);
-        }
-      } else if (this.tileAtlas) {
-        const idx = TILE_ATLAS_INDEX[key] ?? 0;
-        const ox = (idx % ATLAS_GRID) * TILE_SIZE;
-        const oy = Math.floor(idx / ATLAS_GRID) * TILE_SIZE;
-        const atlasCanvas = this.tileAtlas.image as HTMLCanvasElement;
-        if (atlasCanvas && atlasCanvas.getContext) {
-          const actx = atlasCanvas.getContext('2d');
-          if (actx) {
-            const imgData = actx.getImageData(ox, oy, TILE_SIZE, TILE_SIZE);
-            ctx.putImageData(imgData, 0, 0);
-            tex.needsUpdate = true;
-          }
-        }
+      if (this.tileSheetAlbedoImg && SHEET_TILE_MAPPING[key]) {
+        const cell = SHEET_TILE_MAPPING[key]!;
+        this.stampSheetCellToTexture(tex, this.tileSheetAlbedoImg, cell.row, cell.col, 1);
+      } else if (this.tileExtraAlbedoImg && EXTRA_TILE_MAPPING[key]) {
+        const cell = EXTRA_TILE_MAPPING[key]!;
+        this.stampSheetCellToTexture(tex, this.tileExtraAlbedoImg, cell.row, cell.col, 1);
       }
     }
     return tex;
@@ -1225,16 +1246,27 @@ export class ProceduralAssetProvider implements AssetProvider {
   getWallNormalTexture(key: TileAtlasKey): THREE.CanvasTexture {
     let tex = this.wallNormalCache.get(key);
     if (!tex) {
-      tex = makeNormalTexture(makeFlatNormalCanvas(TILE_SIZE, TILE_SIZE), true);
+      const normalCanvas = makeFlatNormalCanvas(TILE_SIZE, TILE_SIZE);
+      const nctx = normalCanvas.getContext('2d');
+      const atlasNormal = this.getTileAtlasNormalTexture();
+      const idx = TILE_ATLAS_INDEX[key] ?? 0;
+      const ox = (idx % ATLAS_GRID) * TILE_SIZE;
+      const oy = Math.floor(idx / ATLAS_GRID) * TILE_SIZE;
+      const atlasCanvas = atlasNormal.image as HTMLCanvasElement;
+      if (nctx && atlasCanvas && typeof nctx.drawImage === 'function') {
+        nctx.imageSmoothingEnabled = false;
+        nctx.drawImage(atlasCanvas, ox, oy, TILE_SIZE, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE);
+      }
+
+      tex = makeNormalTexture(normalCanvas, true);
       this.wallNormalCache.set(key, tex);
 
-      const cell = SHEET_TILE_MAPPING[key] || EXTRA_TILE_MAPPING[key];
-      if (cell) {
-        if (this.tileSheetNormalImg && SHEET_TILE_MAPPING[key]) {
-          this.stampSheetCellToTexture(tex, this.tileSheetNormalImg, cell.row, cell.col, 1);
-        } else if (this.tileExtraNormalImg && EXTRA_TILE_MAPPING[key]) {
-          this.stampSheetCellToTexture(tex, this.tileExtraNormalImg, cell.row, cell.col, 1);
-        }
+      if (this.tileSheetNormalImg && SHEET_TILE_MAPPING[key]) {
+        const cell = SHEET_TILE_MAPPING[key]!;
+        this.stampSheetCellToTexture(tex, this.tileSheetNormalImg, cell.row, cell.col, 1);
+      } else if (this.tileExtraNormalImg && EXTRA_TILE_MAPPING[key]) {
+        const cell = EXTRA_TILE_MAPPING[key]!;
+        this.stampSheetCellToTexture(tex, this.tileExtraNormalImg, cell.row, cell.col, 1);
       }
     }
     return tex;

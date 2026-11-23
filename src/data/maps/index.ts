@@ -6,6 +6,7 @@ import { MAP_LABORATORIO_ORIGEN } from './labInterior.ts';
 import { MAP_PUEBLO_BRUMA } from './puebloBruma.ts';
 import { MAP_RUTA_1 } from './ruta1.ts';
 import { MAP_RUTA_2 } from './ruta2.ts';
+import { SERVICE_INTERIOR_MAPS } from './serviceInteriors.ts';
 import { MAP_TEST_RIVERBANK } from './testRiverbank.ts';
 import { MAP_VILLA_ORIGEN } from './villaOrigen.ts';
 import { MAP_TALLER_ORIGEN } from './workshopInterior.ts';
@@ -20,6 +21,7 @@ export const MAPS: Record<string, MapDef> = {
   cueva_eco: MAP_CUEVA_ECO,
   arena_cumbre: MAP_ARENA_CUMBRE,
   ...HOUSE_INTERIOR_MAPS,
+  ...SERVICE_INTERIOR_MAPS,
 };
 
 /** Isolated development/validation maps (excluded from story map-passage assertions) */

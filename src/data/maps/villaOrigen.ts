@@ -1,62 +1,278 @@
 import type { MapDef } from '../../domain/types.ts';
 import { hexToNumber, PALETTE } from '../../gfx/Palette.ts';
 import {
-  addHill,
-  addPerimeterMountains,
-  carveMapPass,
-  carveRoad,
-  createZoneCanvas,
   DEFAULT_LEGEND,
-  fillRect,
-  finalizeZone,
+  generateNoiseWorldMap,
 } from './mapBuilder.ts';
 
-function buildVillaOrigen() {
-  const z = createZoneCanvas(48, 48, '.', 2);
-
-  // Rolling perimeter hills and distant mountain backdrop
-  addPerimeterMountains(z, 5, 8, '#');
-  addHill(z, 10, 10, 8, 3);
-  addHill(z, 38, 12, 9, 4);
-  addHill(z, 11, 37, 8, 3);
-  addHill(z, 37, 36, 9, 4);
-
-  // Village central plateau at height 2 (+ south-east cottage plot & yard)
-  fillRect(z, 12, 14, 24, 22, '.', 2);
-  fillRect(z, 28, 30, 9, 7, '.', 2);
-  // Village plaza cobble, lab entrance walkway & cottage walkway
-  fillRect(z, 17, 20, 14, 11, '=', 2);
-  fillRect(z, 18, 18, 3, 2, '=', 2);
-  fillRect(z, 29, 31, 4, 5, '=', 2);
-  // Pond on east side
-  fillRect(z, 31, 24, 5, 5, '~', 1);
-  // Flower meadows
-  fillRect(z, 13, 25, 3, 4, '*', 2);
-  fillRect(z, 33, 16, 3, 3, '*', 2);
-  // Workshop cobble courtyard
-  fillRect(z, 29, 17, 4, 3, '=', 2);
-
-  // North exit road to Ruta 1
-  carveRoad(z, 23, 0, 23, 21, 2, '=', 2);
-  // Subtle stairs approaching north gate
-  fillRect(z, 23, 5, 2, 2, '^', 2);
-  // Wide grassy pass into Ruta 1 (avoids steep V-trench)
-  carveMapPass(z, {
-    x: 23,
-    y: 0,
-    exitDir: 'north',
-    roadTile: '=',
-    height: 2,
-    depth: 8,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: '.',
+function buildVillaOrigenTerrain() {
+  return generateNoiseWorldMap({
+    width: 48,
+    height: 48,
+    seed: 101,
+    baseTile: '.',
+    baseHeight: 1,
+    perimeter: {
+      thickness: 4.6,
+      peakHeight: 8,
+      ridgeTile: '#',
+      shelfTile: '.',
+      amplitude: 2.8,
+      seed: 101,
+    },
+    noiseField: {
+      seed: 109,
+      baseHeight: 1,
+      maxHeight: 2,
+      scale: 0.09,
+      warpAmp: 2.2,
+      ridgeThreshold: 0.65,
+      highTile: '.',
+      borderMargin: 4,
+    },
+    rooms: [
+      // Main Town Valley (varied multi-lobed village clearing)
+      {
+        cx: 24.0,
+        cy: 24.0,
+        rx: 17.5,
+        rz: 15.8,
+        height: 1,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 5,
+        distortion: 0.2,
+        seed: 121,
+      },
+      // North Training Clearing
+      {
+        cx: 15.5,
+        cy: 10.0,
+        rx: 5.2,
+        rz: 3.4,
+        height: 1,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: -0.25,
+        distortion: 0.34,
+        seed: 123,
+      },
+      // SE Wild Meadow Glade
+      {
+        cx: 38.5,
+        cy: 36.5,
+        rx: 4.6,
+        rz: 4.4,
+        height: 1,
+        tile: '.',
+        shape: 'crescent',
+        angle: 0.4,
+        distortion: 0.34,
+        seed: 125,
+      },
+      // Western Secret Thicket Clearing around (7, 25)
+      {
+        cx: 7.2,
+        cy: 25.0,
+        rx: 2.6,
+        rz: 4.6,
+        height: 1,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: 0.1,
+        distortion: 0.3,
+        seed: 167,
+      },
+    ],
+    waterBodies: [
+      // Eastern scenic curved lagoon with sandy shore
+      {
+        kind: 'lake',
+        cx: 38.8,
+        cy: 26.5,
+        rx: 4.2,
+        rz: 3.3,
+        waterHeight: 0,
+        waterTile: '~',
+        shoreTile: 's',
+        shoreHeight: 1,
+        jitter: 0.36,
+        borderMargin: 4,
+        seed: 157,
+      },
+    ],
+    islets: [
+      // Stepped corner hillside promontories framing the village
+      {
+        cx: 7.0,
+        cy: 8.0,
+        rx: 3.8,
+        rz: 3.5,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.56, height: 3, tile: '#' },
+        ],
+        seed: 111,
+      },
+      {
+        cx: 41.0,
+        cy: 41.0,
+        rx: 3.8,
+        rz: 3.5,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.56, height: 3, tile: '#' },
+        ],
+        seed: 117,
+      },
+      // Stepped mossy islet inside eastern lagoon
+      {
+        cx: 40.5,
+        cy: 26.5,
+        rx: 1.9,
+        rz: 1.6,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.55, height: 2, tile: '#' },
+        ],
+        seed: 163,
+      },
+    ],
+    outcropClusters: [
+      // Stepped western bluff outcrops framing secret clearing
+      { cx: 9.6, cy: 25.0, count: 2, spread: 1.5, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 173 },
+      { cx: 36.2, cy: 31.2, count: 2, spread: 1.8, baseHeight: 1, shelfTile: '.', capTile: '#', seed: 175 },
+    ],
+    passes: [
+      {
+        x: 23,
+        y: 0,
+        exitDir: 'north',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 1,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+    ],
+    bridges: [{ x: 34, y: 26, w: 3, h: 1, height: 1, tile: 'B' }],
+    paths: [
+      // Meandering northern exit road
+      {
+        waypoints: [
+          { x: 23.5, y: 18 },
+          { x: 22.8, y: 11 },
+          { x: 23.5, y: 1 },
+        ],
+        baseWidth: 2.2,
+        meanderAmp: 1.2,
+        meanderFreq: 0.16,
+        widthBreath: 0.3,
+        tile: '=',
+        height: 1,
+        seed: 131,
+      },
+      // Curved town avenue
+      {
+        waypoints: [
+          { x: 13.0, y: 26.0 },
+          { x: 19.0, y: 26.8 },
+          { x: 26.0, y: 26.0 },
+          { x: 33.5, y: 25.5 },
+        ],
+        baseWidth: 2.1,
+        meanderAmp: 1.0,
+        meanderFreq: 0.16,
+        widthBreath: 0.28,
+        tile: '=',
+        height: 1,
+        seed: 137,
+      },
+      // Shop lane
+      {
+        waypoints: [
+          { x: 28.0, y: 18.0 },
+          { x: 33.0, y: 19.8 },
+          { x: 37.0, y: 20.5 },
+        ],
+        baseWidth: 2.0,
+        meanderAmp: 0.9,
+        meanderFreq: 0.18,
+        widthBreath: 0.28,
+        tile: '=',
+        height: 1,
+        seed: 139,
+      },
+      // Acquirable house lane
+      {
+        waypoints: [
+          { x: 28.0, y: 27.0 },
+          { x: 30.2, y: 31.0 },
+          { x: 31.0, y: 34.5 },
+        ],
+        baseWidth: 2.0,
+        meanderAmp: 0.9,
+        meanderFreq: 0.18,
+        widthBreath: 0.28,
+        tile: '=',
+        height: 1,
+        seed: 143,
+      },
+      // West residential lane & pickup trail
+      {
+        waypoints: [
+          { x: 13.0, y: 27.0 },
+          { x: 13.8, y: 31.5 },
+          { x: 12.5, y: 35.5 },
+          { x: 8.5, y: 37.0 },
+        ],
+        baseWidth: 1.9,
+        meanderAmp: 1.1,
+        meanderFreq: 0.18,
+        widthBreath: 0.3,
+        tile: ',',
+        height: 1,
+        seed: 149,
+      },
+    ],
+    glades: [
+      { cx: 18.5, cy: 29.5, rx: 2.8, rz: 1.6, height: 1, tile: '*', shape: 'lobed', distortion: 0.32, seed: 179 },
+      { cx: 24.0, cy: 12.0, rx: 2.5, rz: 1.6, height: 1, tile: '*', shape: 'lobed', distortion: 0.32, seed: 181 },
+      { cx: 15.0, cy: 9.5, rx: 4.0, rz: 2.6, height: 1, tile: '"', shape: 'winding_meadow', distortion: 0.34, seed: 191 },
+      { cx: 38.5, cy: 36.5, rx: 3.6, rz: 3.6, height: 1, tile: '"', shape: 'crescent', distortion: 0.34, seed: 193 },
+    ],
+    buildingPads: [
+      // Town square cobble plaza & Tutorial.ts Lab escort corridor (19..24, 18..26) + 7 buildings
+      { x: 19, y: 18, w: 9, h: 9, tile: '=', height: 1 },
+      { x: 17, y: 14, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 28, y: 13, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 11, y: 22, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 35, y: 16, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 10, y: 15, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 11, y: 30, w: 5, h: 4, tile: '.', height: 1 },
+      { x: 29, y: 30, w: 5, h: 4, tile: '.', height: 1 },
+    ],
+    guaranteedCells: [
+      // Secret western entry gaps & pickups
+      { x: 9, y: 21, tile: '.', height: 1 },
+      { x: 9, y: 29, tile: '.', height: 1 },
+      { x: 7, y: 25, tile: '.', height: 1 },
+      { x: 8, y: 37, tile: ',', height: 1 },
+      { x: 40, y: 10, tile: '.', height: 1 },
+      { x: 30, y: 17, tile: '=', height: 1 },
+      { x: 30, y: 18, tile: '=', height: 1 },
+      { x: 32, y: 18, tile: '=', height: 1 },
+      { x: 13, y: 26, tile: '=', height: 1 },
+      { x: 37, y: 20, tile: '=', height: 1 },
+      { x: 31, y: 34, tile: '=', height: 1 },
+      { x: 28, y: 34, tile: '=', height: 1 },
+    ],
   });
-
-  return finalizeZone(z);
 }
 
-const built = buildVillaOrigen();
+const { grid, heights } = buildVillaOrigenTerrain();
 
 export const MAP_VILLA_ORIGEN: MapDef = {
   id: 'villa_origen',
@@ -66,53 +282,51 @@ export const MAP_VILLA_ORIGEN: MapDef = {
   skyTopColor: hexToNumber(PALETTE.oceanicTeal),
   skyBottomColor: hexToNumber(PALETTE.frostedGlass),
   fogColor: hexToNumber(PALETTE.iceCyan),
-  snowLine: 8,
-  grid: built.grid,
-  heights: built.heights,
+  grid,
+  heights,
   legend: DEFAULT_LEGEND,
   buildings: [
+    // Laboratorio del Prof. Robledo (puerta en 19, 18 para coincidir con Tutorial.ts)
     { kind: 'lab', x: 17, z: 14, width: 5, depth: 4, facing: 'down' },
-    { kind: 'house_red', x: 13, z: 19, width: 4, depth: 3, facing: 'down' },
-    { kind: 'workshop', x: 29, z: 14, width: 4, depth: 3, facing: 'down' },
-    { kind: 'house_blue', x: 30, z: 31, width: 3, depth: 3, facing: 'down' },
+    // Taller de Marionetas (puerta en 30, 17 -> sale a 30, 18)
+    { kind: 'workshop', x: 28, z: 13, width: 5, depth: 4, facing: 'down' },
+    // Centro de Curación (puerta en 13, 26)
+    { kind: 'center', x: 11, z: 22, width: 5, depth: 4, facing: 'down' },
+    // Tienda de Suministros (puerta en 37, 20)
+    { kind: 'shop', x: 35, z: 16, width: 5, depth: 4, facing: 'down' },
+    // Casas residenciales con variantes arquitectónicas
+    { kind: 'house_red', x: 10, z: 15, width: 5, depth: 4, facing: 'down', variant: 'porch_cabin' },
+    { kind: 'house_blue', x: 11, z: 30, width: 5, depth: 4, facing: 'down', variant: 'manor_dormer' },
+    // Casa adquirible en Villa Origen (puerta en 31, 34)
+    { kind: 'house_red', x: 29, z: 30, width: 5, depth: 4, facing: 'down', variant: 'l_annex' },
   ],
   props: [
-    { kind: 'well', x: 20, z: 24 },
-    { kind: 'lamp_wood', x: 22, z: 20 },
-    { kind: 'lamp_wood', x: 28, z: 19 },
-    { kind: 'lamp_post', x: 22, z: 30 },
-    { kind: 'lamp_post', x: 26, z: 30 },
-    { kind: 'lamp_stone', x: 30, z: 29 },
-    { kind: 'lamp_double', x: 28, z: 21 },
-    { kind: 'atlas_banco_00', x: 18, z: 29 },
-    { kind: 'atlas_cerca_00', x: 13, z: 24 },
-    { kind: 'atlas_cerca_00', x: 14, z: 24 },
-    { kind: 'atlas_cerca_00', x: 15, z: 24 },
-    { kind: 'oak', x: 14, z: 31 },
-    { kind: 'atlas_arbolmanzano_00', x: 11, z: 31 },
-    { kind: 'birch', x: 35, z: 31 },
-    { kind: 'atlas_arbolmanzano_00', x: 38, z: 31 },
-    { kind: 'mushroom_tree', x: 13, z: 29 },
-    { kind: 'mushroom_tree_arcane', x: 35, z: 18 },
-    { kind: 'lamp_wood', x: 21, z: 3 },
-    { kind: 'lamp_wood', x: 26, z: 3 },
-    { kind: 'atlas_cerca_00', x: 20, z: 2 },
-    { kind: 'atlas_cerca_00', x: 21, z: 2 },
-    { kind: 'atlas_cerca_00', x: 26, z: 2 },
-    { kind: 'atlas_cerca_00', x: 27, z: 2 },
+    { kind: 'well', x: 17, z: 23 },
+    { kind: 'lamp_wood', x: 22, z: 18 },
+    { kind: 'lamp_wood', x: 26, z: 18 },
+    { kind: 'lamp_wood', x: 18, z: 27 },
+    { kind: 'lamp_wood', x: 26, z: 27 },
+    { kind: 'lamp_wood', x: 11, z: 26 },
+    { kind: 'lamp_wood', x: 39, z: 20 },
+    { kind: 'bench', x: 17, z: 27 },
+    { kind: 'bench', x: 28, z: 24 },
+    { kind: 'oak', x: 7, z: 17 },
+    { kind: 'oak', x: 7, z: 32 },
+    { kind: 'pine', x: 41, z: 13 },
+    { kind: 'oak', x: 40, z: 31 },
   ],
   decoration: {
     seed: 101,
-    treeDensity: 0.14,
-    bushDensity: 0.08,
-    flowerDensity: 0.06,
-    rockDensity: 0.03,
-    mushroomDensity: 0.02,
+    treeDensity: 0.08,
+    bushDensity: 0.05,
+    flowerDensity: 0.07,
+    rockDensity: 0.02,
+    mushroomDensity: 0.01,
     treeKinds: ['oak', 'birch', 'pine'],
   },
   warps: [
-    { x: 23, y: 0, targetMap: 'ruta_1', targetX: 23, targetY: 53, dir: 'up' },
-    { x: 24, y: 0, targetMap: 'ruta_1', targetX: 24, targetY: 53, dir: 'up' },
+    { x: 23, y: 0, targetMap: 'ruta_1', targetX: 25, targetY: 58, dir: 'up', doorStyle: 'gate' },
+    { x: 24, y: 0, targetMap: 'ruta_1', targetX: 26, targetY: 58, dir: 'up', doorStyle: 'gate' },
     {
       x: 19,
       y: 18,
@@ -132,11 +346,20 @@ export const MAP_VILLA_ORIGEN: MapDef = {
       doorStyle: 'building',
     },
     {
-      x: 31,
-      y: 17,
-      targetMap: 'taller_origen',
-      targetX: 9,
-      targetY: 10,
+      x: 13,
+      y: 26,
+      targetMap: 'centro_origen',
+      targetX: 6,
+      targetY: 9,
+      dir: 'up',
+      doorStyle: 'building',
+    },
+    {
+      x: 37,
+      y: 20,
+      targetMap: 'tienda_origen',
+      targetX: 6,
+      targetY: 9,
       dir: 'up',
       doorStyle: 'building',
     },
@@ -166,46 +389,67 @@ export const MAP_VILLA_ORIGEN: MapDef = {
       id: 'aldeano_origen',
       name: 'Vecina Alba',
       role: 'npc',
-      x: 16,
-      y: 26,
+      x: 18,
+      y: 25,
       dir: 'right',
       dialogKey: 'villager_origen',
       patrol: {
         waypoints: [
-          { x: 16, y: 26 },
-          { x: 19, y: 26 },
-          { x: 19, y: 28 },
-          { x: 16, y: 28 },
+          { x: 18, y: 25 },
+          { x: 21, y: 25 },
         ],
-        speed: 1.5,
-        pauseSec: 1.3,
+        speed: 1.4,
+        pauseSec: 2.0,
+      },
+      lookAtPlayerAfterTalk: true,
+    },
+    {
+      id: 'villa_paseante',
+      name: 'Joven Martín',
+      role: 'npc',
+      x: 22,
+      y: 30,
+      dir: 'right',
+      dialogKey: 'villager_origen',
+      patrol: {
+        waypoints: [
+          { x: 22, y: 30 },
+          { x: 26, y: 30 },
+        ],
+        speed: 1.35,
+        pauseSec: 1.8,
       },
       lookAtPlayerAfterTalk: true,
     },
     {
       id: 'aprendiz_taller',
-      name: 'Aprendiz Kael',
+      name: 'Aprendiz Teo',
       role: 'artisan',
-      x: 33,
+      x: 32,
       y: 18,
-      dir: 'left',
+      dir: 'down',
       dialogKey: 'aprendiz_taller',
       lookAtPlayerAfterTalk: true,
     },
     {
-      id: 'agente_villa',
-      name: 'Agente Bruno',
+      id: 'corredor_casa_villa',
+      name: 'Agente Sol',
       role: 'merchant',
-      x: 29,
+      x: 28,
       y: 34,
       dir: 'down',
-      dialogKey: 'house_broker_villa',
+      dialogKey: 'villager_origen',
       houseBrokerId: 'casa_villa',
       lookAtPlayerAfterTalk: true,
     },
   ],
   signs: [
-    { x: 22, y: 18, textKey: 'sign_origen' },
-    { x: 28, y: 17, textKey: 'sign_taller' },
+    { x: 22, y: 24, textKey: 'sign_origen' },
+    { x: 27, y: 17, textKey: 'sign_taller' },
+  ],
+  pickups: [
+    { id: 'villa_pocion_1', x: 8, y: 37, itemId: 'pocion', quantity: 2 },
+    { id: 'villa_capsula_1', x: 40, y: 10, itemId: 'capsula', quantity: 3 },
+    { id: 'villa_oculto_baya', x: 7, y: 25, itemId: 'baya_roble', quantity: 2, hidden: true },
   ],
 };

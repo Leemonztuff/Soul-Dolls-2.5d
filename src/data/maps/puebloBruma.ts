@@ -1,131 +1,436 @@
 import type { MapDef } from '../../domain/types.ts';
 import { hexToNumber, PALETTE } from '../../gfx/Palette.ts';
 import {
-  addHill,
-  addPerimeterMountains,
-  carveMapPass,
-  carveRoad,
-  createZoneCanvas,
   DEFAULT_LEGEND,
-  fillRect,
-  finalizeZone,
+  generateNoiseWorldMap,
 } from './mapBuilder.ts';
 
-function buildPuebloBruma() {
-  const z = createZoneCanvas(48, 48, '.', 1);
-
-  addPerimeterMountains(z, 5, 7, '#');
-  addHill(z, 10, 10, 7, 3);
-  addHill(z, 38, 10, 7, 3);
-
-  // Lower promenade terrace (height 1)
-  fillRect(z, 12, 30, 24, 13, '=', 1);
-  // Mid plaza terrace (height 3) with Healing Center & Shop
-  fillRect(z, 10, 16, 28, 14, '=', 3);
-  // Stairs connecting height 1 -> height 3
-  fillRect(z, 23, 29, 2, 2, '^', 2);
-
-  // Upper lookout terrace (height 5)
-  fillRect(z, 14, 7, 20, 8, '=', 5);
-  fillRect(z, 23, 15, 2, 2, '^', 4);
-
-  // South warp road -> Ruta 1
-  carveRoad(z, 23, 30, 23, 47, 2, '=', 1);
-  // East warp road -> Ruta 2 (step down smoothly from plaza 3 -> 2)
-  carveRoad(z, 36, 23, 47, 23, 2, '=', 2);
-  fillRect(z, 37, 23, 2, 2, '^', 2);
-
-  // Water canal & flowers
-  fillRect(z, 12, 33, 6, 4, '~', 0);
-  fillRect(z, 30, 33, 5, 4, '*', 1);
-
-  // Smooth passes at south & east exits
-  carveMapPass(z, {
-    x: 23,
-    y: 47,
-    exitDir: 'south',
-    roadTile: '=',
-    height: 1,
-    depth: 8,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: '.',
+function buildPuebloBrumaTerrain() {
+  return generateNoiseWorldMap({
+    width: 52,
+    height: 52,
+    seed: 303,
+    baseTile: '.',
+    baseHeight: 2,
+    perimeter: {
+      thickness: 4.8,
+      peakHeight: 8,
+      ridgeTile: '#',
+      shelfTile: '.',
+      amplitude: 2.9,
+      seed: 303,
+    },
+    rooms: [
+      // Terrace 1 (South Riverbank): crescent meadow apron wrapping river bend
+      {
+        cx: 26.0,
+        cy: 41.5,
+        rx: 20.5,
+        rz: 7.2,
+        height: 1,
+        tile: '.',
+        shape: 'crescent',
+        angle: -Math.PI * 0.5,
+        distortion: 0.28,
+        seed: 311,
+      },
+      // Terrace 2 (Lower Town Valley): varied multi-lobed town plateau
+      {
+        cx: 26.0,
+        cy: 25.5,
+        rx: 20.5,
+        rz: 7.6,
+        height: 2,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 5,
+        distortion: 0.24,
+        seed: 317,
+      },
+      // Rounded bridge headlands on north bank of river
+      {
+        cx: 25.5,
+        cy: 29.4,
+        rx: 5.0,
+        rz: 2.6,
+        height: 2,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 4,
+        distortion: 0.22,
+        seed: 319,
+      },
+      {
+        cx: 11.5,
+        cy: 29.6,
+        rx: 3.0,
+        rz: 2.4,
+        height: 2,
+        tile: '.',
+        shape: 'lobed',
+        lobes: 4,
+        distortion: 0.22,
+        seed: 320,
+      },
+      // Terrace 3 (Upper Gym & Residential Sanctuary): craggy terrace
+      {
+        cx: 26.0,
+        cy: 11.2,
+        rx: 20.5,
+        rz: 6.8,
+        height: 4,
+        tile: '.',
+        shape: 'craggy_sanctuary',
+        lobes: 5,
+        distortion: 0.24,
+        seed: 323,
+      },
+      // Secret NW Grove behind Gym on Upper Terrace
+      {
+        cx: 7.8,
+        cy: 11.5,
+        rx: 2.6,
+        rz: 3.6,
+        height: 4,
+        tile: '*',
+        shape: 'winding_meadow',
+        distortion: 0.28,
+        seed: 401,
+      },
+    ],
+    waterBodies: [
+      {
+        kind: 'river',
+        waypoints: [
+          { x: 4, y: 34.5 },
+          { x: 11, y: 34.0 },
+          { x: 18, y: 35.2 },
+          { x: 25.5, y: 34.2 },
+          { x: 34, y: 33.2 },
+          { x: 42, y: 35.0 },
+          { x: 48, y: 34.2 },
+        ],
+        halfWidth: 1.8,
+        waterHeight: 0,
+        waterTile: '~',
+        bankHeight: 1,
+        bankMargin: 1.2,
+        seed: 347,
+      },
+      {
+        kind: 'lake',
+        cx: 17.5,
+        cy: 34.8,
+        rx: 3.6,
+        rz: 2.5,
+        waterHeight: 0,
+        waterTile: '~',
+        jitter: 0.3,
+        borderMargin: 4,
+        seed: 349,
+      },
+      {
+        kind: 'lake',
+        cx: 35.5,
+        cy: 33.6,
+        rx: 4.2,
+        rz: 2.6,
+        waterHeight: 0,
+        waterTile: '~',
+        jitter: 0.3,
+        borderMargin: 4,
+        seed: 353,
+      },
+    ],
+    islets: [
+      {
+        cx: 17.5,
+        cy: 34.8,
+        rx: 1.6,
+        rz: 1.4,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.55, height: 2, tile: '#' },
+        ],
+        seed: 359,
+      },
+      {
+        cx: 36.0,
+        cy: 33.6,
+        rx: 1.8,
+        rz: 1.5,
+        tiers: [
+          { scale: 1.0, height: 1, tile: '.' },
+          { scale: 0.55, height: 3, tile: '#' },
+        ],
+        seed: 367,
+      },
+    ],
+    outcropClusters: [
+      // Stepped rocky ledges separating Terrace 2 (2) and Terrace 3 (4)
+      { cx: 17.0, cy: 17.8, count: 3, spread: 2.4, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 331 },
+      { cx: 34.5, cy: 17.8, count: 3, spread: 2.8, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 337 },
+      { cx: 7.5, cy: 17.8, count: 2, spread: 1.8, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 341 },
+      { cx: 10.2, cy: 10.5, count: 2, spread: 1.4, baseHeight: 4, shelfTile: '.', capTile: '#', seed: 409 },
+    ],
+    passes: [
+      {
+        x: 25,
+        y: 0,
+        exitDir: 'south',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 1,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+      {
+        x: 0,
+        y: 24,
+        exitDir: 'east',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 2,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+    ],
+    stairs: [
+      // Central Grand Staircase (x: 23..27, climbing north 2 -> 3 -> 4; preserves test at (23, 18))
+      { x: 23, y: 16, w: 5, h: 1, height: 4, tile: '^' },
+      { x: 23, y: 17, w: 5, h: 1, height: 3, tile: '^' },
+      { x: 23, y: 18, w: 5, h: 1, height: 2, tile: '^' },
+      // Western Terrace Staircase (x: 11..12)
+      { x: 11, y: 16, w: 2, h: 1, height: 4, tile: '^' },
+      { x: 11, y: 17, w: 2, h: 1, height: 3, tile: '^' },
+      { x: 11, y: 18, w: 2, h: 1, height: 2, tile: '^' },
+      // River bridge northern stairs
+      { x: 24, y: 32, w: 4, h: 1, height: 2, tile: '^' },
+      { x: 11, y: 32, w: 2, h: 1, height: 2, tile: '^' },
+    ],
+    bridges: [
+      { x: 24, y: 33, w: 4, h: 3, height: 1, tile: 'B' },
+      { x: 11, y: 33, w: 2, h: 3, height: 1, tile: 'B' },
+    ],
+    paths: [
+      // South approach trail
+      {
+        waypoints: [
+          { x: 25.5, y: 50 },
+          { x: 24.0, y: 43 },
+          { x: 25.5, y: 36.5 },
+        ],
+        baseWidth: 2.2,
+        meanderAmp: 1.5,
+        meanderFreq: 0.15,
+        widthBreath: 0.32,
+        tile: '=',
+        height: 1,
+        seed: 379,
+      },
+      // Lower Town sinuous avenue
+      {
+        waypoints: [
+          { x: 13.0, y: 26.5 },
+          { x: 21.0, y: 27.8 },
+          { x: 31.0, y: 25.2 },
+          { x: 40.0, y: 26.0 },
+          { x: 49.0, y: 24.5 },
+        ],
+        baseWidth: 2.1,
+        meanderAmp: 1.3,
+        meanderFreq: 0.15,
+        widthBreath: 0.3,
+        tile: '=',
+        height: 2,
+        seed: 383,
+      },
+      {
+        waypoints: [
+          { x: 12.0, y: 27.0 },
+          { x: 12.2, y: 31.0 },
+        ],
+        baseWidth: 2.0,
+        meanderAmp: 0.7,
+        meanderFreq: 0.18,
+        widthBreath: 0.25,
+        tile: '=',
+        height: 2,
+        seed: 389,
+      },
+      // Upper Terrace sinuous avenue
+      {
+        waypoints: [
+          { x: 12.0, y: 13.5 },
+          { x: 20.0, y: 12.5 },
+          { x: 29.0, y: 13.4 },
+          { x: 37.0, y: 12.5 },
+        ],
+        baseWidth: 2.0,
+        meanderAmp: 1.1,
+        meanderFreq: 0.16,
+        widthBreath: 0.28,
+        tile: '=',
+        height: 4,
+        seed: 397,
+      },
+    ],
+    glades: [
+      { cx: 10.5, cy: 40.5, rx: 3.8, rz: 2.8, height: 1, tile: '*', shape: 'lobed', distortion: 0.34, seed: 419 },
+      { cx: 37.5, cy: 40.5, rx: 4.2, rz: 2.8, height: 1, tile: '"', shape: 'winding_meadow', distortion: 0.34, seed: 421 },
+    ],
+    buildingPads: [
+      { x: 11, y: 22, w: 5, h: 5, tile: '.', height: 2 },
+      { x: 18, y: 22, w: 3, h: 4, tile: '.', height: 2 },
+      { x: 35, y: 22, w: 5, h: 5, tile: '.', height: 2 },
+      { x: 22, y: 7, w: 7, h: 5, tile: '.', height: 4 },
+      { x: 12, y: 8, w: 5, h: 5, tile: '.', height: 4 },
+      { x: 34, y: 8, w: 5, h: 5, tile: '.', height: 4 },
+      // Central town cobble plaza & staircase landings
+      { x: 23, y: 22, w: 5, h: 7, tile: '=', height: 2 },
+      { x: 23, y: 19, w: 5, h: 2, tile: '=', height: 2 },
+      { x: 23, y: 12, w: 5, h: 4, tile: '=', height: 4 },
+      { x: 11, y: 13, w: 2, h: 3, tile: '=', height: 4 },
+      { x: 24, y: 36, w: 4, h: 2, tile: '=', height: 1 },
+      { x: 11, y: 36, w: 2, h: 2, tile: '.', height: 1 },
+      { x: 24, y: 31, w: 4, h: 1, tile: '=', height: 2 },
+      { x: 11, y: 31, w: 2, h: 1, tile: '=', height: 2 },
+    ],
+    guaranteedCells: [
+      { x: 10, y: 14, tile: '.', height: 4 },
+      { x: 7, y: 11, tile: '*', height: 4 },
+      { x: 39, y: 39, tile: '.', height: 1 },
+      { x: 39, y: 40, tile: '.', height: 1 },
+      { x: 10, y: 39, tile: '.', height: 1 },
+      { x: 47, y: 23, tile: '.', height: 2 },
+      { x: 33, y: 12, tile: '=', height: 4 },
+      { x: 36, y: 12, tile: '=', height: 4 },
+      { x: 25, y: 11, tile: '=', height: 4 },
+      { x: 13, y: 26, tile: '=', height: 2 },
+      { x: 37, y: 26, tile: '=', height: 2 },
+    ],
+    customPostProcess: (z) => {
+      // Ensure clean cliff step behind central & west staircases (preserves Pueblo Bruma stair test)
+      for (let x = 22; x < 29; x++) {
+        if (x < 23 || x > 27) {
+          z.tiles[17][x] = '#';
+          z.heights[17][x] = 3;
+        }
+      }
+      for (let x = 10; x < 14; x++) {
+        if (x < 11 || x > 12) {
+          z.tiles[17][x] = '#';
+          z.heights[17][x] = 3;
+        }
+      }
+    },
   });
-  carveMapPass(z, {
-    x: 47,
-    y: 23,
-    exitDir: 'east',
-    roadTile: '=',
-    height: 2,
-    depth: 9,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: '.',
-  });
-
-  return finalizeZone(z);
 }
 
-const built = buildPuebloBruma();
+const { grid, heights } = buildPuebloBrumaTerrain();
 
 export const MAP_PUEBLO_BRUMA: MapDef = {
   id: 'pueblo_bruma',
   nameKey: 'pueblo_bruma',
-  biome: 'forest',
+  biome: 'meadow',
   music: 'town',
-  skyTopColor: hexToNumber(PALETTE.deepAbyss),
-  skyBottomColor: hexToNumber(PALETTE.iceCyan),
-  fogColor: hexToNumber(PALETTE.frostedGlass),
-  snowLine: 8,
-  grid: built.grid,
-  heights: built.heights,
+  skyTopColor: hexToNumber(PALETTE.oceanicTeal),
+  skyBottomColor: hexToNumber(PALETTE.frostedGlass),
+  fogColor: hexToNumber(PALETTE.iceCyan),
+  grid,
+  heights,
   legend: DEFAULT_LEGEND,
   buildings: [
-    { kind: 'center', x: 13, z: 17, width: 5, depth: 4, facing: 'down' },
-    { kind: 'shop', x: 30, z: 17, width: 5, depth: 4, facing: 'down' },
-    { kind: 'house_blue', x: 16, z: 8, width: 4, depth: 3, facing: 'down' },
-    { kind: 'house_red', x: 29, z: 8, width: 3, depth: 3, facing: 'down' },
+    // Terraza Baja: Centro de Curación, Casa del Sabio y Tienda
+    { kind: 'center', x: 11, z: 22, width: 5, depth: 4, facing: 'down' },
+    { kind: 'house_blue', x: 18, z: 22, width: 3, depth: 3, facing: 'down', variant: 'manor_dormer' },
+    { kind: 'shop', x: 35, z: 22, width: 5, depth: 4, facing: 'down' },
+    // Terraza Alta: Gimnasio oficial de Pueblo Bruma + Residencia adquirible + Cabaña
+    { kind: 'gym', x: 22, z: 7, width: 7, depth: 4, facing: 'down' },
+    { kind: 'house_red', x: 12, z: 8, width: 5, depth: 4, facing: 'down', variant: 'porch_cabin' },
+    { kind: 'house_blue', x: 34, z: 8, width: 5, depth: 4, facing: 'down', variant: 'l_annex' },
   ],
   props: [
-    { kind: 'well', x: 23, z: 23 },
-    { kind: 'lamp_double', x: 19, z: 22 },
-    { kind: 'lamp_double', x: 28, z: 22 },
-    { kind: 'lamp_post', x: 22, z: 38 },
-    { kind: 'lamp_post', x: 26, z: 38 },
-    { kind: 'lamp_wood', x: 36, z: 22 },
-    { kind: 'lamp_wood', x: 36, z: 25 },
-    { kind: 'lamp_stone', x: 21, z: 12 },
-    { kind: 'lamp_stone', x: 26, z: 12 },
-    { kind: 'atlas_banco_00', x: 20, z: 26 },
-    { kind: 'atlas_banco_00', x: 27, z: 26 },
-    { kind: 'flower_patch', x: 12, z: 22 },
-    { kind: 'flower_patch', x: 35, z: 21 },
-    { kind: 'mushroom_tree', x: 11, z: 28 },
-    { kind: 'atlas_arbolmanzano_00', x: 8, z: 28 },
-    { kind: 'mushroom_tree_arcane', x: 36, z: 28 },
-    { kind: 'atlas_arbolmanzano_00', x: 39, z: 28 },
-    { kind: 'lamp_post', x: 21, z: 45 },
-    { kind: 'lamp_post', x: 26, z: 45 },
-    { kind: 'lamp_wood', x: 45, z: 21 },
-    { kind: 'lamp_wood', x: 45, z: 26 },
+    { kind: 'well', x: 25, z: 24 },
+    { kind: 'lamp_post', x: 21, z: 21 },
+    { kind: 'lamp_post', x: 29, z: 21 },
+    { kind: 'lamp_post', x: 21, z: 29 },
+    { kind: 'lamp_post', x: 29, z: 29 },
+    { kind: 'lamp_post', x: 22, z: 12 },
+    { kind: 'lamp_post', x: 28, z: 12 },
+    { kind: 'bench', x: 21, z: 26 },
+    { kind: 'bench', x: 29, z: 26 },
+    { kind: 'pillar', x: 48, z: 22 },
+    { kind: 'pillar', x: 48, z: 27 },
+    { kind: 'pine', x: 8, z: 27 },
+    { kind: 'oak', x: 42, z: 39 },
   ],
   decoration: {
     seed: 303,
-    treeDensity: 0.12,
-    bushDensity: 0.08,
+    treeDensity: 0.08,
+    bushDensity: 0.05,
     flowerDensity: 0.08,
     rockDensity: 0.03,
-    mushroomDensity: 0.02,
-    treeKinds: ['oak', 'birch', 'mushroom_tree'],
+    mushroomDensity: 0.01,
+    treeKinds: ['oak', 'pine', 'birch'],
   },
   warps: [
-    { x: 23, y: 47, targetMap: 'ruta_1', targetX: 23, targetY: 2, dir: 'down' },
-    { x: 24, y: 47, targetMap: 'ruta_1', targetX: 24, targetY: 2, dir: 'down' },
-    { x: 47, y: 23, targetMap: 'ruta_2', targetX: 2, targetY: 24, dir: 'right' },
-    { x: 47, y: 24, targetMap: 'ruta_2', targetX: 2, targetY: 25, dir: 'right' },
+    { x: 25, y: 51, targetMap: 'ruta_1', targetX: 25, targetY: 1, dir: 'down', doorStyle: 'gate' },
+    { x: 26, y: 51, targetMap: 'ruta_1', targetX: 26, targetY: 1, dir: 'down', doorStyle: 'gate' },
     {
-      x: 30,
+      x: 51,
+      y: 24,
+      targetMap: 'ruta_2',
+      targetX: 1,
+      targetY: 24,
+      dir: 'right',
+      requiredBadges: 1,
+      doorStyle: 'gate',
+    },
+    {
+      x: 51,
+      y: 25,
+      targetMap: 'ruta_2',
+      targetX: 1,
+      targetY: 25,
+      dir: 'right',
+      requiredBadges: 1,
+      doorStyle: 'gate',
+    },
+    {
+      x: 13,
+      y: 26,
+      targetMap: 'centro_bruma',
+      targetX: 6,
+      targetY: 9,
+      dir: 'up',
+      doorStyle: 'building',
+    },
+    {
+      x: 37,
+      y: 26,
+      targetMap: 'tienda_bruma',
+      targetX: 6,
+      targetY: 9,
+      dir: 'up',
+      doorStyle: 'building',
+    },
+    {
+      x: 25,
       y: 11,
+      targetMap: 'gimnasio_bruma',
+      targetX: 7,
+      targetY: 13,
+      dir: 'up',
+      doorStyle: 'building',
+    },
+    {
+      x: 36,
+      y: 12,
       targetMap: 'casa_bruma_pb',
       targetX: 8,
       targetY: 10,
@@ -134,98 +439,73 @@ export const MAP_PUEBLO_BRUMA: MapDef = {
       doorStyle: 'building',
     },
   ],
+  badgeGates: [
+    { x: 50, y: 24, requiredBadges: 1 },
+    { x: 50, y: 25, requiredBadges: 1 },
+  ],
   npcs: [
-    {
-      id: 'healer_clara',
-      name: 'Enfermera Clara',
-      role: 'healer',
-      x: 15,
-      y: 22,
-      dir: 'down',
-      dialogKey: 'healer_clara',
-      healOnTalk: true,
-      lookAtPlayerAfterTalk: true,
-    },
-    {
-      id: 'merchant_mateo',
-      name: 'Mercader Mateo',
-      role: 'merchant',
-      x: 32,
-      y: 22,
-      dir: 'down',
-      dialogKey: 'merchant_mateo',
-      lookAtPlayerAfterTalk: true,
-      shopStock: [
-        'pocion',
-        'superpocion',
-        'hiperpocion',
-        'antidoto',
-        'despertar',
-        'antiparalizador',
-        'revivir',
-        'capsula',
-        'supercapsula',
-        'ultracapsula',
-        'piedra_chispa',
-        'piedra_brasa',
-        'piedra_flora',
-        'repelente',
-        'cuerda_huida',
-        'fragmento_alma',
-      ],
-    },
     {
       id: 'bruma_npc_1',
       name: 'Sabio Tomás',
-      role: 'npc',
-      x: 24,
-      y: 12,
-      dir: 'down',
+      role: 'scholar',
+      x: 18,
+      y: 28,
+      dir: 'right',
       dialogKey: 'villager_bruma_1',
       patrol: {
         waypoints: [
-          { x: 24, y: 12 },
-          { x: 22, y: 12 },
-          { x: 22, y: 13 },
-          { x: 25, y: 13 },
-          { x: 25, y: 12 },
+          { x: 18, y: 28 },
+          { x: 22, y: 28 },
         ],
-        speed: 1.35,
-        pauseSec: 1.6,
+        speed: 1.3,
+        pauseSec: 2.2,
       },
       lookAtPlayerAfterTalk: true,
     },
     {
       id: 'bruma_npc_2',
       name: 'Guía Nora',
-      role: 'npc',
-      x: 39,
-      y: 22,
-      dir: 'left',
+      role: 'trainer',
+      x: 30,
+      y: 25,
+      dir: 'right',
       dialogKey: 'villager_bruma_2',
       patrol: {
         waypoints: [
-          { x: 39, y: 22 },
-          { x: 42, y: 22 },
-          { x: 42, y: 24 },
-          { x: 39, y: 24 },
+          { x: 30, y: 25 },
+          { x: 33, y: 25 },
         ],
-        speed: 1.45,
-        pauseSec: 1.4,
+        speed: 1.35,
+        pauseSec: 2.0,
       },
       lookAtPlayerAfterTalk: true,
     },
     {
-      id: 'agente_bruma',
-      name: 'Agente Vera',
-      role: 'merchant',
-      x: 28,
-      y: 11,
+      id: 'bruma_centinela_este',
+      name: 'Centinela Bruno',
+      role: 'trainer',
+      x: 47,
+      y: 23,
       dir: 'down',
-      dialogKey: 'house_broker_bruma',
+      dialogKey: 'badge_gate_bruma',
+      lookAtPlayerAfterTalk: true,
+    },
+    {
+      id: 'corredor_casa_bruma',
+      name: 'Agente Marco',
+      role: 'merchant',
+      x: 33,
+      y: 12,
+      dir: 'down',
+      dialogKey: 'villager_bruma_1',
       houseBrokerId: 'casa_bruma',
       lookAtPlayerAfterTalk: true,
     },
   ],
-  signs: [{ x: 21, y: 31, textKey: 'sign_bruma' }],
+  signs: [{ x: 23, y: 29, textKey: 'sign_bruma' }],
+  pickups: [
+    { id: 'bruma_revivir_1', x: 39, y: 40, itemId: 'revivir', quantity: 1 },
+    { id: 'bruma_superpocion_1', x: 10, y: 39, itemId: 'superpocion', quantity: 2 },
+    { id: 'bruma_oculto_piedra_marea', x: 7, y: 11, itemId: 'piedra_marea', quantity: 1, hidden: true },
+  ],
 };

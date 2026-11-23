@@ -55,7 +55,7 @@ describe('Quest & Dynamic Arrow system', () => {
     // Past the last quest returns null active quest and does not advance further
     const lastIdx = MAIN_QUESTS.length;
     expect(getActiveQuest(lastIdx)).toBeNull();
-    const afterAll = evaluateQuestProgress(lastIdx, 'arena_cumbre', 23, 22);
+    const afterAll = evaluateQuestProgress(lastIdx, 'liga_cumbre', 7, 4);
     expect(afterAll.updated).toBe(false);
     expect(afterAll.nextIndex).toBe(lastIdx);
   });
@@ -83,7 +83,7 @@ describe('Quest & Dynamic Arrow system', () => {
     );
     expect(navBackFromRuta1.isCrossMap).toBe(true);
     expect(navBackFromRuta1.viaMapId).toBe('villa_origen');
-    expect(navBackFromRuta1.y).toBe(55);
+    expect(navBackFromRuta1.y).toBe(59);
   });
 
   it('computes dynamic directional arrow angle relative to camera yaw', () => {

@@ -58,8 +58,8 @@ export const ALL_HOUSES: readonly HouseDef[] = [
     price: 1,
     floor1MapId: 'casa_bruma_pb',
     floor2MapId: 'casa_bruma_hab',
-    exteriorDoorX: 30,
-    exteriorDoorY: 11,
+    exteriorDoorX: 36,
+    exteriorDoorY: 12,
     description:
       'Acogedora vivienda en la terraza alta de Pueblo Bruma, conectada a tu cofre compartido.',
   },
@@ -71,7 +71,7 @@ export const ALL_HOUSES: readonly HouseDef[] = [
     price: 1,
     floor1MapId: 'casa_cumbre_pb',
     floor2MapId: 'casa_cumbre_hab',
-    exteriorDoorX: 31,
+    exteriorDoorX: 38,
     exteriorDoorY: 25,
     description:
       'Refugio alpino junto a la gran arena para descansar y preparar tu equipo final.',

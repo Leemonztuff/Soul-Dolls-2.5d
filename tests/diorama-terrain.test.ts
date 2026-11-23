@@ -169,8 +169,8 @@ describe('Diorama 90-degree cliff terrain & shaders', () => {
     expect(orient.yLow).toBeCloseTo(2 * HEIGHT_UNIT);
     expect(orient.yHigh).toBeCloseTo(3 * HEIGHT_UNIT);
 
-    // Pueblo Bruma terrace stairs at (23, 29) climb north from level 2 to level 3
-    const brumaOrient = detectStairClimbDirection(MAPS.pueblo_bruma, 23, 29);
+    // Pueblo Bruma terrace stairs at (23, 18) climb north from level 2 to level 3
+    const brumaOrient = detectStairClimbDirection(MAPS.pueblo_bruma, 23, 18);
     expect(brumaOrient.dir).toBe('north');
     expect(brumaOrient.yHigh).toBeCloseTo(3 * HEIGHT_UNIT);
 

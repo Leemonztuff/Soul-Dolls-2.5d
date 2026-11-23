@@ -604,7 +604,7 @@ export const PauseMenuView: React.FC<PauseMenuViewProps> = ({
 
       {save.badges.length > 0 && (
         <div className="text-xs text-neon-mint tabular-nums mb-1">
-          {ES.menu.badges}: {save.badges.length}/4
+          {ES.menu.badges}: {save.badges.length}/2
         </div>
       )}
       {save.repelSteps > 0 && (

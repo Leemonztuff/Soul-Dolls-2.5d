@@ -2,154 +2,542 @@ import type { MapDef } from '../../domain/types.ts';
 import { hexToNumber, PALETTE } from '../../gfx/Palette.ts';
 import { ENCOUNTERS } from '../encounters.ts';
 import {
-  addHill,
-  addPerimeterMountains,
-  carveMapPass,
-  carveRoad,
-  createZoneCanvas,
   DEFAULT_LEGEND,
-  fillRect,
-  finalizeZone,
+  generateNoiseWorldMap,
 } from './mapBuilder.ts';
 
-function buildRuta2() {
-  const z = createZoneCanvas(56, 48, ',', 2);
-
-  addPerimeterMountains(z, 5, 8, '#');
-  // Mountain ridges & alpine peaks
-  addHill(z, 16, 12, 11, 5);
-  addHill(z, 42, 14, 12, 6);
-  addHill(z, 40, 36, 10, 4);
-
-  // Scenic alpine lake in center-south
-  fillRect(z, 20, 26, 14, 11, '~', 1);
-
-  // Mountain pass road from west (0,24) across bridge over lake to north cave (36,0)
-  carveRoad(z, 0, 24, 19, 24, 2, '_', 2);
-  // Bridge across lake (x=20..33, z=28..29) -> route slightly south then bridge!
-  carveRoad(z, 18, 24, 18, 29, 2, '_', 2);
-  fillRect(z, 20, 29, 14, 2, 'B', 2); // wooden bridge over lake!
-  carveRoad(z, 34, 29, 36, 16, 2, '_', 3);
-  fillRect(z, 34, 22, 2, 2, '^', 2);
-  carveRoad(z, 36, 16, 36, 0, 2, '_', 4);
-  fillRect(z, 36, 12, 2, 2, '^', 3);
-
-  // Tall grass valleys
-  fillRect(z, 8, 16, 8, 6, '"', 2);
-  fillRect(z, 10, 31, 8, 7, '"', 2);
-  fillRect(z, 38, 21, 9, 6, '"', 3);
-
-  // Smooth terraced alpine passes at west & north cave exits
-  carveMapPass(z, {
-    x: 0,
-    y: 24,
-    exitDir: 'west',
-    roadTile: '_',
-    height: 2,
-    depth: 8,
-    shoulderWidth: 3,
-    slopeWidth: 5,
-    shoulderTile: ',',
+function buildRuta2Terrain() {
+  return generateNoiseWorldMap({
+    width: 60,
+    height: 52,
+    seed: 404,
+    baseTile: '.',
+    baseHeight: 2,
+    perimeter: {
+      thickness: 4.8,
+      peakHeight: 8,
+      ridgeTile: '#',
+      shelfTile: '.',
+      amplitude: 3.1,
+      seed: 404,
+    },
+    noiseField: {
+      seed: 407,
+      baseHeight: 2,
+      maxHeight: 4,
+      scale: 0.09,
+      warpAmp: 2.5,
+      ridgeThreshold: 0.64,
+      highTile: '.',
+      ridgeTile: '#',
+      borderMargin: 4,
+    },
+    rooms: [
+      // West Entry Valley Clearing
+      {
+        cx: 11.5,
+        cy: 27.5,
+        rx: 6.2,
+        rz: 7.4,
+        height: 2,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: -0.35,
+        distortion: 0.36,
+        seed: 411,
+      },
+      // East Lakeside Crescent Terrace
+      {
+        cx: 43.0,
+        cy: 28.5,
+        rx: 5.5,
+        rz: 9.0,
+        height: 2,
+        tile: '.',
+        shape: 'crescent',
+        angle: Math.PI,
+        distortion: 0.35,
+        seed: 415,
+      },
+      // North Branch: Senda de las Cornisas (2 linked varied cliffside chambers at height 4)
+      {
+        cx: 19.0,
+        cy: 15.5,
+        rx: 8.8,
+        rz: 4.6,
+        height: 4,
+        tile: '_',
+        shape: 'craggy_sanctuary',
+        lobes: 5,
+        distortion: 0.34,
+        seed: 461,
+      },
+      {
+        cx: 32.5,
+        cy: 15.8,
+        rx: 9.2,
+        rz: 4.6,
+        height: 4,
+        tile: '_',
+        shape: 'lobed',
+        lobes: 4,
+        distortion: 0.32,
+        seed: 463,
+      },
+      // North Exit Canyon Clearing (height 2)
+      {
+        cx: 32.0,
+        cy: 7.5,
+        rx: 6.2,
+        rz: 3.8,
+        height: 2,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: 0.25,
+        distortion: 0.34,
+        seed: 469,
+      },
+      // NE Secret Passage: Socavón Lateral behind curved craggy ridge
+      {
+        cx: 48.5,
+        cy: 14.5,
+        rx: 4.8,
+        rz: 7.2,
+        height: 2,
+        tile: '.',
+        shape: 'winding_meadow',
+        angle: 0.15,
+        distortion: 0.34,
+        seed: 487,
+      },
+    ],
+    waterBodies: [
+      // Winding alpine lake + bays (bed height 1)
+      {
+        kind: 'lake',
+        cx: 28.0,
+        cy: 35.5,
+        rx: 15.5,
+        rz: 8.0,
+        waterHeight: 1,
+        waterTile: '~',
+        jitter: 0.38,
+        borderMargin: 5,
+        seed: 417,
+      },
+      {
+        kind: 'lake',
+        cx: 20.5,
+        cy: 32.8,
+        rx: 5.5,
+        rz: 4.4,
+        waterHeight: 1,
+        waterTile: '~',
+        jitter: 0.35,
+        borderMargin: 5,
+        seed: 421,
+      },
+      {
+        kind: 'lake',
+        cx: 36.2,
+        cy: 37.8,
+        rx: 5.2,
+        rz: 4.2,
+        waterHeight: 1,
+        waterTile: '~',
+        jitter: 0.35,
+        borderMargin: 5,
+        seed: 425,
+      },
+    ],
+    islets: [
+      // Central Sanctuary Island (mossy grass & wildflowers, NOT a concrete slab!)
+      {
+        cx: 27.5,
+        cy: 35.2,
+        rx: 4.8,
+        rz: 3.4,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.62, height: 2, tile: '*' },
+        ],
+        seed: 431,
+      },
+      // West & East mossy shore headlands meeting the short bridges organically
+      {
+        cx: 15.6,
+        cy: 34.5,
+        rx: 2.8,
+        rz: 2.4,
+        tiers: [{ scale: 1.0, height: 2, tile: '.' }],
+        seed: 433,
+      },
+      {
+        cx: 39.6,
+        cy: 34.5,
+        rx: 2.8,
+        rz: 2.4,
+        tiers: [{ scale: 1.0, height: 2, tile: '.' }],
+        seed: 435,
+      },
+      // Multi-tiered Octopath-style stepped mossy/rocky islets rising out of the alpine lake
+      {
+        cx: 19.2,
+        cy: 30.2,
+        rx: 2.2,
+        rz: 1.9,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.56, height: 4, tile: '#' },
+        ],
+        seed: 439,
+      },
+      {
+        cx: 36.5,
+        cy: 30.0,
+        rx: 2.3,
+        rz: 2.0,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.56, height: 3, tile: '#' },
+        ],
+        seed: 443,
+      },
+      {
+        cx: 21.0,
+        cy: 40.5,
+        rx: 2.1,
+        rz: 1.8,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.55, height: 3, tile: '#' },
+        ],
+        seed: 449,
+      },
+      {
+        cx: 35.8,
+        cy: 40.8,
+        rx: 2.0,
+        rz: 1.7,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.55, height: 4, tile: '#' },
+        ],
+        seed: 457,
+      },
+      {
+        cx: 29.8,
+        cy: 29.5,
+        rx: 1.6,
+        rz: 1.4,
+        tiers: [
+          { scale: 1.0, height: 2, tile: '.' },
+          { scale: 0.54, height: 3, tile: '#' },
+        ],
+        seed: 459,
+      },
+      // Upper highland crag peak overlooking Senda de las Cornisas
+      {
+        cx: 26.0,
+        cy: 10.5,
+        rx: 4.2,
+        rz: 2.2,
+        tiers: [
+          { scale: 1.0, height: 5, tile: '_' },
+          { scale: 0.6, height: 6, tile: '#' },
+        ],
+        seed: 467,
+      },
+      // NE Socavón crystal outcrop
+      {
+        cx: 51.5,
+        cy: 10.5,
+        rx: 2.8,
+        rz: 2.4,
+        tiers: [
+          { scale: 1.0, height: 3, tile: '.' },
+          { scale: 0.5, height: 5, tile: '#' },
+        ],
+        seed: 499,
+      },
+    ],
+    outcropClusters: [
+      { cx: 15.5, cy: 20.8, count: 3, spread: 2.4, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 471 },
+      { cx: 34.0, cy: 21.0, count: 3, spread: 2.4, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 475 },
+      { cx: 43.2, cy: 14.2, count: 3, spread: 2.4, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 491 },
+      { cx: 12.2, cy: 38.0, count: 2, spread: 2.0, baseHeight: 2, shelfTile: '.', capTile: '#', seed: 495 },
+    ],
+    passes: [
+      {
+        x: 0,
+        y: 24,
+        exitDir: 'west',
+        roadWidth: 2,
+        roadTile: '=',
+        height: 2,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+      {
+        x: 29,
+        y: 0,
+        exitDir: 'north',
+        roadWidth: 2,
+        roadTile: '_',
+        height: 2,
+        depth: 8,
+        shoulderWidth: 3,
+        slopeWidth: 5,
+        shoulderTile: '.',
+      },
+    ],
+    stairs: [
+      // West & East ascending ridge staircases (height 2 -> 3 -> 4)
+      { x: 11, y: 20, w: 3, h: 1, height: 4, tile: '^' },
+      { x: 11, y: 21, w: 3, h: 1, height: 3, tile: '^' },
+      { x: 11, y: 22, w: 3, h: 1, height: 2, tile: '^' },
+      { x: 38, y: 20, w: 3, h: 1, height: 4, tile: '^' },
+      { x: 38, y: 21, w: 3, h: 1, height: 3, tile: '^' },
+      { x: 38, y: 22, w: 3, h: 1, height: 2, tile: '^' },
+      // Step up onto NE crystal shrine shelf
+      { x: 49, y: 12, w: 2, h: 1, height: 2, tile: '^' },
+    ],
+    bridges: [
+      // Short bridges spanning only the lake channels to the sanctuary island
+      { x: 18, y: 34, w: 5, h: 2, height: 2, tile: 'B' },
+      { x: 32, y: 34, w: 5, h: 2, height: 2, tile: 'B' },
+    ],
+    paths: [
+      // Meandering west shore -> south lake bridge
+      {
+        waypoints: [
+          { x: 6.5, y: 24.5 },
+          { x: 10.5, y: 29.0 },
+          { x: 12.8, y: 34.5 },
+          { x: 17.5, y: 34.5 },
+        ],
+        baseWidth: 2.1,
+        meanderAmp: 1.8,
+        meanderFreq: 0.15,
+        widthBreath: 0.36,
+        tile: ',',
+        height: 2,
+        seed: 405,
+      },
+      // Sinuous narrow dirt trail curving organically across the mossy sanctuary island
+      {
+        waypoints: [
+          { x: 23.0, y: 34.5 },
+          { x: 26.0, y: 35.6 },
+          { x: 28.5, y: 35.4 },
+          { x: 31.8, y: 34.5 },
+        ],
+        baseWidth: 1.7,
+        meanderAmp: 0.8,
+        meanderFreq: 0.22,
+        widthBreath: 0.28,
+        tile: ',',
+        height: 2,
+        seed: 409,
+      },
+      // Meandering east shore -> north exit canyon
+      {
+        waypoints: [
+          { x: 37.5, y: 34.5 },
+          { x: 43.0, y: 30.0 },
+          { x: 41.8, y: 22.0 },
+          { x: 36.2, y: 13.5 },
+          { x: 30.0, y: 6.8 },
+        ],
+        baseWidth: 2.1,
+        meanderAmp: 2.0,
+        meanderFreq: 0.14,
+        widthBreath: 0.38,
+        tile: ',',
+        height: 2,
+        seed: 413,
+      },
+      // Trail to west stairs
+      {
+        waypoints: [
+          { x: 7.0, y: 24.5 },
+          { x: 10.5, y: 24.0 },
+          { x: 12.2, y: 22.5 },
+        ],
+        baseWidth: 1.9,
+        meanderAmp: 1.1,
+        meanderFreq: 0.18,
+        widthBreath: 0.3,
+        tile: ',',
+        height: 2,
+        seed: 415,
+      },
+      // Trail through upper ridge
+      {
+        waypoints: [
+          { x: 12.5, y: 19.0 },
+          { x: 18.0, y: 16.0 },
+          { x: 25.0, y: 16.2 },
+          { x: 33.0, y: 15.8 },
+          { x: 39.5, y: 19.0 },
+        ],
+        baseWidth: 1.9,
+        meanderAmp: 1.4,
+        meanderFreq: 0.16,
+        widthBreath: 0.32,
+        tile: ',',
+        height: 4,
+        seed: 417,
+      },
+      // NE Socavón trail
+      {
+        waypoints: [
+          { x: 42.0, y: 22.5 },
+          { x: 46.2, y: 19.2 },
+          { x: 48.5, y: 14.8 },
+          { x: 49.5, y: 12.5 },
+        ],
+        baseWidth: 1.9,
+        meanderAmp: 1.4,
+        meanderFreq: 0.16,
+        widthBreath: 0.32,
+        tile: ',',
+        height: 2,
+        seed: 419,
+      },
+    ],
+    glades: [
+      { cx: 18, cy: 15.5, rx: 4.0, rz: 2.6, height: 4, tile: '"', shape: 'lobed', distortion: 0.34, seed: 423 },
+      { cx: 32, cy: 15.5, rx: 4.0, rz: 2.6, height: 4, tile: '"', shape: 'crescent', distortion: 0.34, seed: 429 },
+      { cx: 11, cy: 37.5, rx: 3.6, rz: 3.6, height: 2, tile: '"', shape: 'lobed', distortion: 0.34, seed: 433 },
+      { cx: 45, cy: 36.5, rx: 4.0, rz: 4.0, height: 2, tile: '"', shape: 'winding_meadow', distortion: 0.34, seed: 437 },
+    ],
+    guaranteedCells: [
+      // Island bridge touchpoints, patrol (24..28, 36), NPC (28, 35), pickup (28, 33)
+      { x: 17, y: 34, tile: ',', height: 2 },
+      { x: 17, y: 35, tile: ',', height: 2 },
+      { x: 23, y: 34, tile: ',', height: 2 },
+      { x: 23, y: 35, tile: ',', height: 2 },
+      { x: 31, y: 34, tile: ',', height: 2 },
+      { x: 31, y: 35, tile: ',', height: 2 },
+      { x: 37, y: 34, tile: ',', height: 2 },
+      { x: 37, y: 35, tile: ',', height: 2 },
+      { x: 24, y: 36, tile: ',', height: 2 },
+      { x: 25, y: 36, tile: ',', height: 2 },
+      { x: 26, y: 36, tile: ',', height: 2 },
+      { x: 27, y: 36, tile: '.', height: 2 },
+      { x: 28, y: 36, tile: '.', height: 2 },
+      { x: 28, y: 35, tile: ',', height: 2 },
+      { x: 28, y: 33, tile: '*', height: 2 },
+      // Upper ridge stairs top landings, NPC (24, 16) & pickup (36, 15)
+      { x: 11, y: 19, tile: '_', height: 4 },
+      { x: 12, y: 19, tile: '_', height: 4 },
+      { x: 13, y: 19, tile: '_', height: 4 },
+      { x: 38, y: 19, tile: '_', height: 4 },
+      { x: 39, y: 19, tile: '_', height: 4 },
+      { x: 40, y: 19, tile: '_', height: 4 },
+      { x: 24, y: 16, tile: '_', height: 4 },
+      { x: 36, y: 15, tile: '_', height: 4 },
+      // Pickups & NE crystal shrine
+      { x: 11, y: 38, tile: '.', height: 2 },
+      { x: 47, y: 17, tile: '.', height: 2 },
+      { x: 50, y: 11, tile: '.', height: 3 },
+      { x: 51, y: 11, tile: '.', height: 3 },
+      { x: 49, y: 11, tile: '.', height: 3 },
+    ],
   });
-  carveMapPass(z, {
-    x: 36,
-    y: 0,
-    exitDir: 'north',
-    roadTile: '_',
-    height: 4,
-    depth: 8,
-    shoulderWidth: 2,
-    slopeWidth: 4,
-    shoulderTile: ',',
-  });
-
-  return finalizeZone(z);
 }
 
-const built = buildRuta2();
+const { grid, heights } = buildRuta2Terrain();
 
 export const MAP_RUTA_2: MapDef = {
   id: 'ruta_2',
   nameKey: 'ruta_2',
   biome: 'mountain',
   music: 'route',
-  skyTopColor: hexToNumber(PALETTE.oldBronze),
-  skyBottomColor: hexToNumber(PALETTE.paleGold),
-  fogColor: hexToNumber(PALETTE.porcelain),
-  snowLine: 7,
-  grid: built.grid,
-  heights: built.heights,
+  skyTopColor: hexToNumber(PALETTE.oceanicTeal),
+  skyBottomColor: hexToNumber(PALETTE.frostedGlass),
+  fogColor: hexToNumber(PALETTE.iceCyan),
+  grid,
+  heights,
   legend: DEFAULT_LEGEND,
   buildings: [],
   props: [
-    { kind: 'boulder', x: 16, z: 22 },
-    { kind: 'boulder', x: 38, z: 14 },
-    { kind: 'lamp_stone', x: 19, z: 28 },
-    { kind: 'lamp_wood', x: 34, z: 28 },
-    { kind: 'pine', x: 12, z: 14 },
-    { kind: 'snow_pine', x: 43, z: 10 },
-    { kind: 'lamp_stone', x: 2, z: 22 },
-    { kind: 'lamp_stone', x: 2, z: 27 },
-    { kind: 'lamp_stone', x: 34, z: 4 },
-    { kind: 'lamp_stone', x: 39, z: 4 },
+    { kind: 'boulder', x: 16, z: 26 },
+    { kind: 'boulder', x: 35, z: 26 },
+    { kind: 'pine', x: 10, z: 31 },
+    { kind: 'pine', x: 43, z: 29 },
+    { kind: 'crystal', x: 52, z: 10 },
+    { kind: 'crystal', x: 49, z: 10 },
+    { kind: 'lamp_stone', x: 27, z: 6 },
+    { kind: 'lamp_stone', x: 32, z: 6 },
   ],
   decoration: {
     seed: 404,
-    treeDensity: 0.14,
-    bushDensity: 0.08,
+    treeDensity: 0.08,
+    bushDensity: 0.06,
     flowerDensity: 0.05,
     rockDensity: 0.1,
     mushroomDensity: 0.02,
-    treeKinds: ['pine', 'snow_pine', 'oak'],
+    treeKinds: ['pine', 'oak'],
   },
   warps: [
-    { x: 0, y: 24, targetMap: 'pueblo_bruma', targetX: 45, targetY: 23, dir: 'left' },
-    { x: 0, y: 25, targetMap: 'pueblo_bruma', targetX: 45, targetY: 24, dir: 'left' },
-    { x: 36, y: 0, targetMap: 'cueva_eco', targetX: 23, targetY: 45, dir: 'up' },
-    { x: 37, y: 0, targetMap: 'cueva_eco', targetX: 24, targetY: 45, dir: 'up' },
+    { x: 0, y: 24, targetMap: 'pueblo_bruma', targetX: 49, targetY: 24, dir: 'left', doorStyle: 'gate' },
+    { x: 0, y: 25, targetMap: 'pueblo_bruma', targetX: 49, targetY: 25, dir: 'left', doorStyle: 'gate' },
+    { x: 29, y: 0, targetMap: 'cueva_eco', targetX: 25, targetY: 50, dir: 'up', doorStyle: 'gate' },
+    { x: 30, y: 0, targetMap: 'cueva_eco', targetX: 26, targetY: 50, dir: 'up', doorStyle: 'gate' },
   ],
   npcs: [
     {
       id: 'npc_ruta2_guarda',
-      name: 'Guardabosques Elena',
+      name: 'Elena',
       role: 'trainer',
-      x: 15,
-      y: 23,
-      dir: 'down',
-      dialogKey: 'trainer',
+      x: 28,
+      y: 35,
+      dir: 'left',
+      dialogKey: 'sign_ruta2',
       trainerId: 'ruta2_guarda',
-      sightRange: 4,
-      patrol: {
-        waypoints: [
-          { x: 15, y: 23 },
-          { x: 15, y: 26 },
-        ],
-        speed: 1.35,
-        pauseSec: 1.5,
-      },
-      lookAtPlayerAfterTalk: true,
+      sightRange: 3,
     },
     {
       id: 'npc_ruta2_chispero',
-      name: 'Chispero Nico',
+      name: 'Nico',
       role: 'trainer',
-      x: 35,
-      y: 19,
-      dir: 'right',
-      dialogKey: 'trainer',
+      x: 24,
+      y: 16,
+      dir: 'down',
+      dialogKey: 'sign_ruta2',
       trainerId: 'ruta2_chispero',
-      sightRange: 4,
+      sightRange: 3,
+    },
+    {
+      id: 'ruta2_explorador',
+      name: 'Montañero Iván',
+      role: 'npc',
+      x: 24,
+      y: 36,
+      dir: 'right',
+      dialogKey: 'sign_ruta2',
       patrol: {
         waypoints: [
-          { x: 35, y: 19 },
-          { x: 35, y: 21 },
+          { x: 24, y: 36 },
+          { x: 28, y: 36 },
         ],
-        speed: 1.35,
-        pauseSec: 1.5,
+        speed: 1.25,
+        pauseSec: 2.0,
       },
       lookAtPlayerAfterTalk: true,
     },
   ],
-  signs: [{ x: 4, y: 23, textKey: 'sign_ruta2' }],
+  signs: [{ x: 8, y: 23, textKey: 'sign_ruta2' }],
+  pickups: [
+    { id: 'ruta2_revivir_1', x: 28, y: 33, itemId: 'revivir', quantity: 1 },
+    { id: 'ruta2_supercapsula_1', x: 11, y: 38, itemId: 'supercapsula', quantity: 2 },
+    { id: 'ruta2_baya_alba_1', x: 36, y: 15, itemId: 'baya_alba', quantity: 2 },
+    { id: 'ruta2_oculto_aurora', x: 51, y: 11, itemId: 'piedra_aurora', quantity: 1, hidden: true },
+    { id: 'ruta2_oculto_fragmento', x: 47, y: 17, itemId: 'fragmento_alma', quantity: 1, hidden: true },
+  ],
   encounters: ENCOUNTERS.ruta_2,
 };

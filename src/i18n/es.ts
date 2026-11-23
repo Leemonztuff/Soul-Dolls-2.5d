@@ -412,11 +412,19 @@ export const ES = {
     villa_origen: 'Villa Origen',
     laboratorio_origen: 'Laboratorio del Prof. Robledo',
     taller_origen: 'Taller de Marionetas',
+    centro_origen: 'Centro de Curación · Villa Origen',
+    tienda_origen: 'Tienda · Villa Origen',
     ruta_1: 'Ruta 1 · Sendero Verde',
     pueblo_bruma: 'Pueblo Bruma',
+    centro_bruma: 'Centro de Curación · Pueblo Bruma',
+    tienda_bruma: 'Tienda · Pueblo Bruma',
+    gimnasio_bruma: 'Gimnasio de Pueblo Bruma',
     ruta_2: 'Ruta 2 · Paso Rocoso',
     cueva_eco: 'Cueva Eco',
     arena_cumbre: 'Arena Cumbre',
+    centro_cumbre: 'Centro de Curación · Arena Cumbre',
+    tienda_cumbre: 'Tienda · Arena Cumbre',
+    liga_cumbre: 'Salón de la Liga Cumbre',
     casa_villa_pb: 'Base Villa · Sala y Cocina',
     casa_villa_hab: 'Base Villa · Habitación',
     casa_bruma_pb: 'Casa Bruma · Sala y Cocina',
@@ -499,21 +507,40 @@ export const ES = {
     healer_menu: '¡Bienvenido al Centro de Curación! ¿En qué puedo ayudarte hoy?',
     merchant_mateo:
       '¡Hola, Soultrainer! Vendo Soulpots, Elixires Ki, Cristales de Maná, Fragmentos de Alma y Cuerpos Contenedores.',
+    merchant_origen:
+      '¡Bienvenido a la Tienda de Villa Origen! Equípate con Soulpots, Elixires y Hilos de Retorno antes de pisar la Ruta 1.',
+    merchant_cumbre:
+      '¡Suministros de élite para la Liga Cumbre! Revisa nuestros Hiper Elixires, Ultra Soulpots y Núcleos Revivir.',
+    healer_origen:
+      '¡Bienvenido al Centro de Villa Origen! ¿Quieres restaurar el Ki de tus SoulDolls o acceder a las Cajas de Almacenamiento?',
+    healer_cumbre:
+      'Aquí arriba hace frío, pero tus SoulDolls saldrán como nuevas. ¿Reparamos sus armazones antes del desafío?',
     villager_bruma_1:
       '¿Sabías que los movimientos del mismo tipo que tu marioneta reciben un bono de 1.5x de daño?',
     villager_bruma_2:
-      'Al este está la Ruta 2, luego la Cueva Eco y al final la Arena Cumbre de la Maestra Soultrainer Valeria.',
+      'Al este está la Ruta 2, luego la Cueva Eco y al final la Liga Cumbre de la Maestra Valeria. Primero necesitarás la Medalla Bruma del Gimnasio.',
+    gym_guide_bruma:
+      '¡Este es el Gimnasio de Pueblo Bruma! En el pasillo central aguarda Tadeo, en el ala lateral Ariadna, y al fondo el Líder Bruma otorga la Medalla Bruma.',
+    gym_bruma_cleared:
+      '¡Ya brilla contigo la Medalla Bruma! El control oriental hacia la Ruta 2 te abrirá paso de inmediato.',
+    badge_gate_bruma:
+      'Paso cerrado hacia Ruta 2: necesitas obtener primero la Medalla Bruma derrotando al Líder en el Gimnasio de Pueblo Bruma.',
+    badge_awarded: (badgeName: string) =>
+      `¡Obtuviste la ${badgeName}! Guardada en tu estuche de medallas.`,
+    spawn_relocated_notice:
+      'El mundo fue remodelado: te reubicamos en un punto seguro cercano para continuar tu aventura.',
     arena_guide:
-      '¡Has llegado a la Arena Cumbre! Antes de retar a la Líder Valeria, usa la máquina de curación a la izquierda.',
+      '¡Has llegado al Salón de la Liga Cumbre! Antes de retar a la Maestra Valeria, usa la máquina de curación a la izquierda.',
     heal_machine_use: 'Máquina de curación activada... ¡Todo tu equipo recuperó sus PS y PP!',
     leader_after:
       '¡Has demostrado ser un Soultrainer excepcional en SoulDolls! El título de Campeón de Cumbre es tuyo.',
-    sign_origen: 'Villa Origen · Hogar del Laboratorio del Prof. Robledo. Norte: Ruta 1.',
-    sign_ruta1: 'Ruta 1 · Precaución: hierba alta con marionetas salvajes. Norte: Pueblo Bruma.',
-    sign_bruma: 'Pueblo Bruma · Centro de Curación al oeste, Tienda al este. Este: Ruta 2.',
-    sign_ruta2: 'Ruta 2 · Paso Rocoso. ¡Soultrainers vigilantes! Norte: Cueva Eco.',
-    sign_cueva: 'Cueva Eco · Hogar de marionetas Roca y Umbra. Salida norte hacia Arena Cumbre.',
-    sign_arena: 'Arena Cumbre · Desafío final contra la Maestra Soultrainer Valeria.',
+    sign_origen: 'Villa Origen · Centro al suroeste, Tienda al este, Lab al norte y Taller al noreste. Salida norte: Ruta 1.',
+    sign_ruta1: 'Ruta 1 · Sendero Verde. Camino principal al frente; antiguos senderos entre los árboles oeste guardan atajos y tesoros.',
+    sign_ruta1_secret: 'Claro Secreto del Oeste · Quienes observan entre la espesura encuentran objetos ocultos cerca de las raíces.',
+    sign_bruma: 'Pueblo Bruma · Centro y Tienda en la plaza baja; el Gimnasio corona la terraza alta. Este: Ruta 2 (requiere Medalla Bruma).',
+    sign_ruta2: 'Ruta 2 · Paso Rocoso. Sur: Puentes del Lago Alpino · Norte: Senda de las Cornisas. ¡Ojo a los socavones ocultos!',
+    sign_cueva: 'Cueva Eco · Cámaras de Cristal en tres niveles. Una galería secreta al norte oculta reliquias antiguas.',
+    sign_arena: 'Arena Cumbre · Ciudadela Nevada. Centro y Tienda antes de ascender al Salón de la Liga Cumbre.',
     bed_rest: 'Descansaste plácidamente en tu cama... ¡Todo tu equipo recuperó sus PS, PP y energía!',
     stove_flavor: 'Un guiso caliente hierve en la cocina y llena el hogar de un aroma reconfortante.',
     bookshelf_flavor: 'Guía del Hogar: Arriba tienes tu cama; abajo esperan tu Pared de Logros y el Cofre para objetos, cartas y almas.',

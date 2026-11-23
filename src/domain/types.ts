@@ -471,8 +471,11 @@ export type BuildingKind =
   | 'lab'
   | 'center'
   | 'shop'
+  | 'gym'
   | 'arena_hall'
   | 'workshop';
+
+export type BuildingVariant = 'porch_cabin' | 'manor_dormer' | 'l_annex';
 
 export interface BuildingPlacement {
   kind: BuildingKind;
@@ -481,6 +484,16 @@ export interface BuildingPlacement {
   width: number;
   depth: number;
   facing: Direction;
+  variant?: BuildingVariant;
+  roofStyle?: 'terracotta' | 'slate' | 'wood' | 'patina' | 'indigo';
+  wallStyle?:
+    | 'wall_plaster'
+    | 'wall_brick'
+    | 'wall_fieldstone'
+    | 'wall_castle'
+    | 'wall_wood_gold'
+    | 'palace_tile'
+    | 'wall_vine_brick';
 }
 
 export interface PropPlacementDef {

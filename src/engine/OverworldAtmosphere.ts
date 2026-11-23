@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getPropAtlasDef } from '../data/propAssets.ts';
 import type { FxQualityTier } from '../domain/FxPool.ts';
+import { isWithinHiddenSparkleRange } from '../domain/TerrainRules.ts';
 import type { BattleBiome, MapDef, PropKind } from '../domain/types.ts';
 import type { PropInstancePlacement } from './BillboardBatch.ts';
 import { DIORAMA_RENDER_ORDER } from './DioramaLayers.ts';
@@ -170,6 +171,17 @@ interface PooledPointLight {
 }
 
 const MAX_STEP_PUFFS = 36;
+const MAX_HIDDEN_PICKUP_SLOTS = 12;
+const SPARKLES_PER_PICKUP = 4;
+const MAX_HIDDEN_SPARKLES = MAX_HIDDEN_PICKUP_SLOTS * SPARKLES_PER_PICKUP;
+
+interface HiddenPickupSparkleSlot {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  collected: boolean;
+}
 
 interface StepPuffSlot {
   active: boolean;
@@ -278,6 +290,15 @@ export class OverworldAtmosphere {
   private puffGeo: THREE.BufferGeometry | null = null;
   private puffPoints: THREE.Points | null = null;
 
+  private hiddenPickups: HiddenPickupSparkleSlot[] = [];
+  private sparklePositions = new Float32Array(MAX_HIDDEN_SPARKLES * 3);
+  private sparkleColors = new Float32Array(MAX_HIDDEN_SPARKLES * 3);
+  private sparkleSizes = new Float32Array(MAX_HIDDEN_SPARKLES);
+  private sparkleGeo: THREE.BufferGeometry | null = null;
+  private sparklePoints: THREE.Points | null = null;
+
+  private readonly scene: THREE.Scene;
+  private readonly disposables: DisposableRegistry;
   private time = 0;
 
   constructor(
@@ -287,6 +308,8 @@ export class OverworldAtmosphere {
     propPlacements: readonly PropInstancePlacement[],
     extraGlowPoints: readonly { x: number; y: number; z: number; kind: PropKind }[]
   ) {
+    this.scene = scene;
+    this.disposables = disposables;
     this.shadowTex = createContactShadowTexture();
     this.shadowPlaneGeo = new THREE.PlaneGeometry(1, 1);
     this.shadowPlaneGeo.rotateX(-Math.PI / 2);
@@ -692,6 +715,88 @@ export class OverworldAtmosphere {
     this.puffPoints = pts;
   }
 
+  private buildHiddenSparkles(
+    scene: THREE.Scene,
+    disposables: DisposableRegistry
+  ): void {
+    for (let i = 0; i < MAX_HIDDEN_SPARKLES; i++) {
+      this.sparklePositions[i * 3 + 1] = -99;
+      this.sparkleSizes[i] = 0;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.sparklePositions, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.sparkleColors, 3));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(this.sparkleSizes, 1));
+
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: /* glsl */ `
+        attribute vec3 color;
+        attribute float aSize;
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          vColor = color;
+          vAlpha = step(0.05, aSize);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = clamp((aSize * 34.0) / max(1.5, -mv.z), 0.0, 14.0);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          if (vAlpha <= 0.01) discard;
+          vec2 p = (gl_PointCoord - 0.5) * 2.0;
+          float d = length(p);
+          if (d > 1.0) discard;
+          float crossStar = max(exp(-abs(p.x) * 4.5) * exp(-abs(p.y) * 1.4), exp(-abs(p.y) * 4.5) * exp(-abs(p.x) * 1.4));
+          float core = smoothstep(1.0, 0.15, d);
+          float alpha = clamp(core * 0.55 + crossStar * 0.75, 0.0, 1.0);
+          gl_FragColor = vec4(vColor, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+
+    disposables.track(geo);
+    disposables.track(mat);
+
+    const pts = new THREE.Points(geo, mat);
+    pts.frustumCulled = false;
+    pts.renderOrder = DIORAMA_RENDER_ORDER.ATMOSPHERE_PARTICLE;
+    scene.add(pts);
+    this.sparkleGeo = geo;
+    this.sparklePoints = pts;
+  }
+
+  setHiddenPickups(
+    pickups: ReadonlyArray<{ id: string; x: number; y: number; z: number }>
+  ): void {
+    this.hiddenPickups = pickups.slice(0, MAX_HIDDEN_PICKUP_SLOTS).map((p) => ({
+      id: p.id,
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      collected: false,
+    }));
+    if (this.hiddenPickups.length > 0 && !this.sparklePoints) {
+      this.buildHiddenSparkles(this.scene, this.disposables);
+    }
+  }
+
+  markHiddenPickupCollected(id: string): void {
+    for (const slot of this.hiddenPickups) {
+      if (slot.id === id) {
+        slot.collected = true;
+      }
+    }
+  }
+
   spawnStepPuff(x: number, y: number, z: number, kind: StepPuffKind): void {
     const count = kind === 'grass' ? 4 : 3;
     for (let i = 0; i < count; i++) {
@@ -855,6 +960,51 @@ export class OverworldAtmosphere {
         this.puffGeo.attributes.position.needsUpdate = true;
         this.puffGeo.attributes.color.needsUpdate = true;
         this.puffGeo.attributes.aSize.needsUpdate = true;
+      }
+    }
+
+    if (this.sparkleGeo && this.sparklePoints) {
+      this.sparklePoints.visible = this.hiddenPickups.length > 0;
+      if (this.sparklePoints.visible) {
+        const activeSlots = Math.min(this.hiddenPickups.length, MAX_HIDDEN_PICKUP_SLOTS);
+        for (let i = 0; i < MAX_HIDDEN_SPARKLES; i++) {
+          const slotIdx = Math.floor(i / SPARKLES_PER_PICKUP);
+          const subIdx = i % SPARKLES_PER_PICKUP;
+          if (slotIdx >= activeSlots) {
+            this.sparkleSizes[i] = 0;
+            this.sparklePositions[i * 3 + 1] = -99;
+            continue;
+          }
+          const slot = this.hiddenPickups[slotIdx];
+          if (
+            slot.collected ||
+            !isWithinHiddenSparkleRange(slot.x, slot.z, playerX, playerZ, 5.0)
+          ) {
+            this.sparkleSizes[i] = 0;
+            this.sparklePositions[i * 3 + 1] = -99;
+            continue;
+          }
+          const phase = this.time * 2.4 + slotIdx * 1.1 + subIdx * (Math.PI * 0.5);
+          const lift = (phase * 0.45 + subIdx * 0.25) % 1;
+          const twinkle = Math.sin(lift * Math.PI);
+          const orbitR = 0.14 + 0.14 * Math.sin(phase * 0.7);
+          this.sparklePositions[i * 3] = slot.x + Math.cos(phase) * orbitR;
+          this.sparklePositions[i * 3 + 1] = slot.y + 0.16 + lift * 0.55;
+          this.sparklePositions[i * 3 + 2] = slot.z + Math.sin(phase) * orbitR;
+          if (subIdx % 2 === 0) {
+            this.sparkleColors[i * 3] = 1.75;
+            this.sparkleColors[i * 3 + 1] = 1.45;
+            this.sparkleColors[i * 3 + 2] = 0.55;
+          } else {
+            this.sparkleColors[i * 3] = 0.72;
+            this.sparkleColors[i * 3 + 1] = 1.65;
+            this.sparkleColors[i * 3 + 2] = 1.85;
+          }
+          this.sparkleSizes[i] = 0.65 + 0.75 * twinkle;
+        }
+        this.sparkleGeo.attributes.position.needsUpdate = true;
+        this.sparkleGeo.attributes.color.needsUpdate = true;
+        this.sparkleGeo.attributes.aSize.needsUpdate = true;
       }
     }
   }

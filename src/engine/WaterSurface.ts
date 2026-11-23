@@ -20,25 +20,25 @@ function getWaterColors(map: MapDef): {
 } {
   if (map.music === 'cave') {
     return {
-      deep: new THREE.Color(0x132b4f),
-      shallow: new THREE.Color(0x286796),
+      deep: new THREE.Color(0x0f203d),
+      shallow: new THREE.Color(0x21547d),
       foam: new THREE.Color(0x88e6ff),
-      glint: new THREE.Color(0.75, 1.35, 1.65),
+      glint: new THREE.Color(0.82, 1.38, 1.7),
     };
   }
   if (map.biome === 'forest') {
     return {
-      deep: new THREE.Color(0x134c59),
-      shallow: new THREE.Color(0x2d8d8f),
-      foam: new THREE.Color(0xcff7ef),
-      glint: new THREE.Color(1.25, 1.32, 1.05),
+      deep: new THREE.Color(0x0e2c33),
+      shallow: new THREE.Color(0x215b60),
+      foam: new THREE.Color(0xc4ede4),
+      glint: new THREE.Color(1.38, 1.44, 1.24),
     };
   }
   return {
-    deep: new THREE.Color(0x165a85),
-    shallow: new THREE.Color(0x36a2be),
-    foam: new THREE.Color(0xdcf8ff),
-    glint: new THREE.Color(1.42, 1.38, 1.15),
+    deep: new THREE.Color(0x102e44),
+    shallow: new THREE.Color(0x26637b),
+    foam: new THREE.Color(0xd2eef7),
+    glint: new THREE.Color(1.46, 1.44, 1.28),
   };
 }
 
