@@ -154,8 +154,8 @@ export const PROP_ATLAS_REGISTRY: readonly PropAtlasDef[] = [
     row: 0,
     cols: 1,
     rows: 1,
-    width: 1,
-    height: 1,
+    width: 1.8,
+    height: 1.6,
     shadow: true,
     solid: true,
   },
@@ -168,8 +168,9 @@ export const PROP_ATLAS_REGISTRY: readonly PropAtlasDef[] = [
     row: 0,
     cols: 1,
     rows: 1,
-    width: 1,
-    height: 1,
+    width: 1.5,
+    height: 1.5,
+    solid: true,
   },
 ];
 

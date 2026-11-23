@@ -334,11 +334,18 @@ export function updatePropBatchAnimation(
   _windTimeUniform.value = time;
 
   for (const g of groups) {
+    const atlasDef = getPropAtlasDef(g.kind);
     const isGrass =
       g.kind === 'tall_grass_clump' ||
       g.kind === 'tall_grass_flower' ||
-      getPropAtlasDef(g.kind)?.grass === true;
-    if (!isGrass && g.lastYaw === yaw) {
+      atlasDef?.grass === true;
+    const isFixedDecor =
+      g.kind === 'atlas_banco_00' ||
+      g.kind === 'atlas_cerca_00' ||
+      atlasDef?.category === 'structure' ||
+      atlasDef?.category === 'decor';
+
+    if (!isGrass && !isFixedDecor && g.lastYaw === yaw) {
       continue;
     }
 
@@ -347,7 +354,11 @@ export function updatePropBatchAnimation(
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       _dummy.position.set(item.x, item.y, item.z);
-      _dummy.rotation.set(0, yaw, 0);
+      if (isFixedDecor) {
+        _dummy.rotation.set(0, 0, 0);
+      } else {
+        _dummy.rotation.set(0, yaw, 0);
+      }
 
       if (isGrass) {
         const dist = Math.hypot(item.x - playerX, item.z - playerZ);
@@ -363,6 +374,8 @@ export function updatePropBatchAnimation(
       inst.setMatrixAt(i, _dummy.matrix);
     }
     inst.instanceMatrix.needsUpdate = true;
-    g.lastYaw = yaw;
+    if (!isFixedDecor) {
+      g.lastYaw = yaw;
+    }
   }
 }
