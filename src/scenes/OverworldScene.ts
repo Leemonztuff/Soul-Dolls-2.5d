@@ -144,6 +144,7 @@ import {
   type TerrainChunk,
 } from '../engine/TerrainMesher.ts';
 import { WaterSurface } from '../engine/WaterSurface.ts';
+import { planFoliageClusters } from '../engine/FoliageClusterPlanner.ts';
 import { ES } from '../i18n/es.ts';
 import { OverworldHud } from '../ui/OverworldHud.ts';
 import type { SkillAcademyTab } from '../ui/SkillAcademyScreen.ts';
@@ -1067,6 +1068,34 @@ export class OverworldScene implements Scene {
     }
 
     this.collectBorderApronProps(map, placements);
+
+    // Capa de clusters de vegetación (árbol + arbustos + rocas bajas + flores)
+    // sobre el scatter existente. Respeta los tiles ya ocupados y no duplica props.
+    const clusterPlan = planFoliageClusters(map, {
+      seed: map.decoration.seed ^ 0x464f4c49,
+      maxClusters: Math.ceil((map.grid.length * map.grid[0].length) / 300),
+      occupied,
+    });
+    for (const prop of clusterPlan.solidProps) {
+      placements.push({
+        kind: prop.kind,
+        x: prop.x,
+        y: prop.y,
+        z: prop.z,
+        scale: prop.scale,
+      });
+      this.blockedTiles.add(`${Math.round(prop.x)},${Math.round(prop.z)}`);
+    }
+    for (const prop of clusterPlan.visualProps) {
+      placements.push({
+        kind: prop.kind,
+        x: prop.x,
+        y: prop.y,
+        z: prop.z,
+        scale: prop.scale,
+      });
+    }
+
     return placements;
   }
 

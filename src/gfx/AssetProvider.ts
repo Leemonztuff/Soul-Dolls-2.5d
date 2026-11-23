@@ -23,6 +23,7 @@ import {
   stampTileSheetOntoAlbedoAtlas,
   stampTileSheetOntoNormalAtlas,
   TILE_SIZE,
+  type SheetCellCoord,
   type TileAtlasKey,
 } from './ProceduralTiles.ts';
 import { generatePropCanvas } from './PropSprites.ts';
@@ -57,6 +58,8 @@ export interface AssetProvider {
   getRoofNormalTexture(kind: RoofTextureKind): THREE.CanvasTexture;
   getWallTexture(key: TileAtlasKey): THREE.CanvasTexture;
   getWallNormalTexture(key: TileAtlasKey): THREE.CanvasTexture;
+  getTerrainLayerTexture(key: TileAtlasKey): THREE.CanvasTexture;
+  getTerrainLayerNormalTexture(key: TileAtlasKey): THREE.CanvasTexture;
   getCreatureTexture(speciesId: number, view: CreatureSpriteView): THREE.CanvasTexture;
   getCreatureSilhouetteTexture(speciesId: number, view: CreatureSpriteView): THREE.CanvasTexture;
   getCreatureDataUrl(speciesId: number, view?: CreatureSpriteView): string;
@@ -437,6 +440,8 @@ export class ProceduralAssetProvider implements AssetProvider {
   private roofNormalCache = new Map<RoofTextureKind, THREE.CanvasTexture>();
   private wallCache = new Map<TileAtlasKey, THREE.CanvasTexture>();
   private wallNormalCache = new Map<TileAtlasKey, THREE.CanvasTexture>();
+  private terrainLayerCache = new Map<TileAtlasKey, THREE.CanvasTexture>();
+  private terrainLayerNormalCache = new Map<TileAtlasKey, THREE.CanvasTexture>();
   private battleIconUrls = new Map<BattleIconKind, string>();
 
   private propImages = new Map<PropKind, HTMLImageElement>();
@@ -1217,6 +1222,90 @@ export class ProceduralAssetProvider implements AssetProvider {
     return tex;
   }
 
+  /**
+   * Dibuja una celda individual (64×64) de la hoja de terrenos correspondiente en un canvas limpio.
+   * Se usa para exponer texturas RepeatWrapping sueltas (cliff_rock, mossy_stone, cracked_stone,
+   * dirt, sand, snow…) destinadas a caras inclinadas y estratos donde el atlas empaquetado
+   * provocaría UV bleeding. Prioriza la hoja principal y, si no existe la clave, la hoja extra.
+   * Cuando ninguna imagen está aún cargada, fall back al wall texture existente (atlas o gris).
+   */
+  private createTerrainLayerCanvas(key: TileAtlasKey, isNormal: boolean): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = TILE_SIZE;
+    canvas.height = TILE_SIZE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, TILE_SIZE, TILE_SIZE);
+
+    const drawFromSheet = (img: HTMLImageElement | null, cell: SheetCellCoord): boolean => {
+      if (!img) return false;
+      ctx.drawImage(
+        img,
+        cell.col * SHEET_CELL_SIZE,
+        cell.row * SHEET_CELL_SIZE,
+        SHEET_CELL_SIZE,
+        SHEET_CELL_SIZE,
+        0,
+        0,
+        TILE_SIZE,
+        TILE_SIZE
+      );
+      return true;
+    };
+
+    const sheetCell = SHEET_TILE_MAPPING[key];
+    if (sheetCell) {
+      const img = isNormal ? this.tileSheetNormalImg : this.tileSheetAlbedoImg;
+      if (drawFromSheet(img, sheetCell)) return canvas;
+    }
+
+    const extraCell = EXTRA_TILE_MAPPING[key];
+    if (extraCell) {
+      const img = isNormal ? this.tileExtraNormalImg : this.tileExtraAlbedoImg;
+      if (drawFromSheet(img, extraCell)) return canvas;
+    }
+
+    // Fallback: copiar del wall texture existente (ya resuelve atlas o gris sólido).
+    const fallback = this.getWallTexture(key);
+    const fbCanvas = fallback.image as HTMLCanvasElement;
+    if (fbCanvas) {
+      ctx.drawImage(fbCanvas, 0, 0, TILE_SIZE, TILE_SIZE);
+    }
+    return canvas;
+  }
+
+  getTerrainLayerTexture(key: TileAtlasKey): THREE.CanvasTexture {
+    let tex = this.terrainLayerCache.get(key);
+    if (!tex) {
+      tex = new THREE.CanvasTexture(this.createTerrainLayerCanvas(key, false));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      this.terrainLayerCache.set(key, tex);
+    }
+    return tex;
+  }
+
+  getTerrainLayerNormalTexture(key: TileAtlasKey): THREE.CanvasTexture {
+    let tex = this.terrainLayerNormalCache.get(key);
+    if (!tex) {
+      tex = new THREE.CanvasTexture(this.createTerrainLayerCanvas(key, true));
+      tex.colorSpace = THREE.NoColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      this.terrainLayerNormalCache.set(key, tex);
+    }
+    return tex;
+  }
+
   onCreatureLoaded(listener: (speciesId: number) => void): () => void {
     this.creatureListeners.add(listener);
     return () => {
@@ -1425,6 +1514,10 @@ export class ProceduralAssetProvider implements AssetProvider {
     this.wallCache.clear();
     for (const t of this.wallNormalCache.values()) t.dispose();
     this.wallNormalCache.clear();
+    for (const t of this.terrainLayerCache.values()) t.dispose();
+    this.terrainLayerCache.clear();
+    for (const t of this.terrainLayerNormalCache.values()) t.dispose();
+    this.terrainLayerNormalCache.clear();
     this.tileSheetAlbedoImg = null;
     this.tileSheetNormalImg = null;
     this.tileExtraAlbedoImg = null;

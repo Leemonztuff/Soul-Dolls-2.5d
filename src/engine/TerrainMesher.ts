@@ -24,6 +24,33 @@ export const CHUNK_SIZE = 16;
 const WATER_BED_OFFSET = 0.16;
 const MAX_CLIFF_BAND_HEIGHT = 1.0;
 
+/**
+ * Fracción de vecinos no-agua (0, 0.5 o 1) en las dos direcciones ortogonales
+ * que apuntan hacia una esquina del tile water. Se usa para elevar suavemente
+ * el lecho costero hacia la orilla sin romper la geometría de quads 1x1.
+ */
+function shoreFactorAt(
+  map: MapDef,
+  x: number,
+  z: number,
+  dx1: number,
+  dz1: number,
+  dx2: number,
+  dz2: number
+): number {
+  const rowA = map.grid[z + dz1];
+  const chA = rowA?.[x + dx1];
+  const legA = chA ? map.legend[chA] : undefined;
+  const nonWaterA = Boolean(legA && legA.tile !== 'water');
+
+  const rowB = map.grid[z + dz2];
+  const chB = rowB?.[x + dx2];
+  const legB = chB ? map.legend[chB] : undefined;
+  const nonWaterB = Boolean(legB && legB.tile !== 'water');
+
+  return (Number(nonWaterA) + Number(nonWaterB)) / 2;
+}
+
 export interface TerrainChunk {
   cx: number;
   cz: number;
@@ -454,6 +481,30 @@ export function buildTerrainChunks(
               uvCoords = [rect.u0, rect.v0, rect.u1, rect.v0, rect.u1, rect.v1, rect.u0, rect.v1];
             }
 
+            // Lecho costero gradual: elevar esquinas del tile water hacia tierra
+            // cuando hay vecino no-agua adyacente, creando una playa suave sin
+            // cambiar la topología de quads 1x1 ni la capa lógica (TerrainRules).
+            const waterCornerYs: [number, number, number, number] = [
+              topY,
+              topY,
+              topY,
+              topY,
+            ];
+            if (tileKey === 'water') {
+              // BL (x0,z1): vecinos oeste (-1,0) y sur (0,1)
+              // BR (x1,z1): vecinos este (1,0) y sur (0,1)
+              // TR (x1,z0): vecinos este (1,0) y norte (0,-1)
+              // TL (x0,z0): vecinos oeste (-1,0) y norte (0,-1)
+              const blShore = shoreFactorAt(map, x, z, -1, 0, 0, 1);
+              const brShore = shoreFactorAt(map, x, z, 1, 0, 0, 1);
+              const trShore = shoreFactorAt(map, x, z, 1, 0, 0, -1);
+              const tlShore = shoreFactorAt(map, x, z, -1, 0, 0, -1);
+              waterCornerYs[0] = topY + blShore * WATER_BED_OFFSET; // BL
+              waterCornerYs[1] = topY + brShore * WATER_BED_OFFSET; // BR
+              waterCornerYs[2] = topY + trShore * WATER_BED_OFFSET; // TR
+              waterCornerYs[3] = topY + tlShore * WATER_BED_OFFSET; // TL
+            }
+
             pushQuad(
               positions,
               normals,
@@ -463,10 +514,10 @@ export function buildTerrainChunks(
               surfaceBlends,
               targetIndices,
               [
-                [x0, topY, z1],
-                [x1, topY, z1],
-                [x1, topY, z0],
-                [x0, topY, z0],
+                [x0, waterCornerYs[0], z1],
+                [x1, waterCornerYs[1], z1],
+                [x1, waterCornerYs[2], z0],
+                [x0, waterCornerYs[3], z0],
               ],
               [0, 1, 0],
               uvCoords,

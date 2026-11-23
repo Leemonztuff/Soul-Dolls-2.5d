@@ -75,14 +75,34 @@ export class WaterSurface {
     let sPtr = 0;
     let base = 0;
 
-    // Corner shore factor: 1.0 if either orthogonal edge adjacent to this corner is non-water
+    // Corner shore factor: valor continuo en [0, 1] que representa qué tan cerca está
+    // esta esquina del agua de una orilla (tierra no-agua). 0 = agua profunda rodeada
+    // de agua, 1 = esquina completamente en tierra. Se calcula como fracción ponderada
+    // de vecinos no-agua en un cruz de 5 tiles alrededor de la esquina, lo que da
+    // transiciones suaves de espuma y profundidad en la ribera sin cambiar la geometría
+    // de quads 1×1 del agua.
     const cornerShore = (x: number, z: number, dx: number, dz: number): number => {
-      const edgeX = !isWaterTile(map, x + dx, z);
-      const edgeZ = !isWaterTile(map, x, z + dz);
+      // Vecinos ortogonales inmediatos en las direcciones de la esquina
+      const orthA = !isWaterTile(map, x + dx, z);
+      const orthB = !isWaterTile(map, x, z + dz);
+      // Diagonal en la dirección de la esquina
       const diag = !isWaterTile(map, x + dx, z + dz);
-      if (edgeX || edgeZ) return 1.0;
-      if (diag) return 0.55;
-      return 0.0;
+      // Vecinos ortogonales opuestos para contexto de orilla amplia
+      const orthOppA = !isWaterTile(map, x - dx, z);
+      const orthOppB = !isWaterTile(map, x, z - dz);
+
+      const nonWaterCount =
+        (orthA ? 1 : 0) +
+        (orthB ? 1 : 0) +
+        (diag ? 1 : 0) +
+        (orthOppA ? 1 : 0) +
+        (orthOppB ? 1 : 0);
+
+      if (nonWaterCount === 0) return 0.0;
+
+      // Fracción continua entre 0.25 y 1.0; 2 no-agua ≈ 0.55 (mismo orden que el valor
+      // diagonal previo, preservando el aspecto de ribera existente en mapas actuales).
+      return 0.25 + (nonWaterCount / 5) * 0.75;
     };
 
     for (let i = 0; i < n; i++) {

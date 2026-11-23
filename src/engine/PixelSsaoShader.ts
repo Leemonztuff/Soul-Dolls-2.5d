@@ -10,9 +10,9 @@ export const PixelSsaoShader = {
     uCameraNear: { value: 0.25 },
     uCameraFar: { value: 120.0 },
     uSsaoStrength: { value: 0.55 },
-    uSsaoRadius: { value: 2.2 },
-    uSsaoBias: { value: 0.035 },
-    uMaxRange: { value: 1.15 },
+    uSsaoRadius: { value: 2.6 },
+    uSsaoBias: { value: 0.04 },
+    uMaxRange: { value: 1.45 },
     uShadowTint: { value: new THREE.Color(PALETTE.deepAmethyst) },
   },
   vertexShader: /* glsl */ `

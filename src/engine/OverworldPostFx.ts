@@ -205,7 +205,7 @@ export class OverworldPostFx {
       su.uPixelGrid.value.set(gridW, gridH);
 
       su.uSsaoStrength.value =
-        this.qualityTier === 'high' ? 0.56 : this.qualityTier === 'medium' ? 0.42 : 0.0;
+        this.qualityTier === 'high' ? 0.62 : this.qualityTier === 'medium' ? 0.48 : 0.0;
 
       const shadowHex =
         this.biome === 'cave'
