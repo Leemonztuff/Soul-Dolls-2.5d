@@ -8,7 +8,7 @@ import {
   SHARDS_PER_CONTAINER,
 } from '../data/containers.ts';
 import { getItem } from '../data/items.ts';
-import { getMap, MAPS } from '../data/maps/index.ts';
+import { DEV_MAPS, getMap, MAPS } from '../data/maps/index.ts';
 import { getPropAtlasDef, getPropAtlasKinds } from '../data/propAssets.ts';
 import { getMove } from '../data/moves.ts';
 import { getSpecies } from '../data/species.ts';
@@ -298,6 +298,13 @@ export class OverworldScene implements Scene {
   private readonly prevCamQuat = new THREE.Quaternion();
   private readonly currCamQuat = new THREE.Quaternion();
   private justTeleported = true;
+  private readonly _chunkFrustum = new THREE.Frustum();
+  private readonly _chunkProjScreen = new THREE.Matrix4();
+  private readonly _lastCullCamPos = new THREE.Vector3(Infinity, Infinity, Infinity);
+  private readonly _lastCullCamQuat = new THREE.Quaternion(0, 0, 0, 0);
+  private _lastCullGridX = -999;
+  private _lastCullGridY = -999;
+  private _lastCullAspect = -1;
 
   private charGeo: THREE.PlaneGeometry;
   private markerGeo: THREE.PlaneGeometry;
@@ -683,7 +690,7 @@ export class OverworldScene implements Scene {
           this.game.saveData.playerX = this.gridX;
           this.game.saveData.playerY = this.gridY;
           this.game.saveData.stats.steps += 1;
-          updateVisibleTerrainChunks(this.chunks, this.gridX, this.gridY);
+          this.updateChunkFrustumCulling(true);
           this.checkQuestCoordinates();
           pm.activeStep = null;
           if (pm.stepIndex >= pm.steps.length) {
@@ -1181,12 +1188,13 @@ export class OverworldScene implements Scene {
     for (const c of toRemove) this.scene.remove(c);
     this.mapDisposables.disposeAll();
 
-    const safeMapId = MAPS[mapId] ? mapId : 'villa_origen';
+    const isKnownMap = Boolean(MAPS[mapId] || DEV_MAPS[mapId]);
+    const safeMapId = isKnownMap ? mapId : 'villa_origen';
     const map = getMap(safeMapId);
     const maxW = Math.max(0, (map.grid[0]?.length ?? 1) - 1);
     const maxH = Math.max(0, map.grid.length - 1);
-    const clampedX = MAPS[mapId] ? Math.max(0, Math.min(maxW, Math.round(x))) : 24;
-    const clampedY = MAPS[mapId] ? Math.max(0, Math.min(maxH, Math.round(y))) : 26;
+    const clampedX = isKnownMap ? Math.max(0, Math.min(maxW, Math.round(x))) : 24;
+    const clampedY = isKnownMap ? Math.max(0, Math.min(maxH, Math.round(y))) : 26;
 
     this.currentMap = map;
     this.gridX = clampedX;
@@ -1276,8 +1284,16 @@ export class OverworldScene implements Scene {
     attachCameraOcclusionCutout(terrainAtlasMat, { minRelY: OCCLUSION_TERRAIN_MIN_REL_Y });
     attachCameraOcclusionCutout(grassMat, { minRelY: OCCLUSION_TERRAIN_MIN_REL_Y });
     attachCameraOcclusionCutout(structureAtlasMat, { minRelY: -999 });
-    attachTerrainDioramaShader(terrainAtlasMat, map.biome);
-    attachTerrainDioramaShader(grassMat, map.biome);
+    const terrainAtlasTex = this.game.assets.getTileAtlasTexture();
+    const terrainNormalTex = this.game.assets.getTileAtlasNormalTexture();
+    attachTerrainDioramaShader(terrainAtlasMat, map.biome, {
+      terrainAtlas: terrainAtlasTex,
+      terrainNormalAtlas: terrainNormalTex,
+    });
+    attachTerrainDioramaShader(grassMat, map.biome, {
+      terrainAtlas: terrainAtlasTex,
+      terrainNormalAtlas: terrainNormalTex,
+    });
     this.mapDisposables.track(terrainAtlasMat);
     this.mapDisposables.track(structureAtlasMat);
     this.mapDisposables.track(grassMat);
@@ -1638,7 +1654,7 @@ export class OverworldScene implements Scene {
       },
       1.0
     );
-    updateVisibleTerrainChunks(this.chunks, clampedX, clampedY);
+    this.updateChunkFrustumCulling(true);
     this.game.bus.emit('audio:music', { track: map.music });
     this.lastAppliedTimePhase = null;
     this.syncTimeOfDayVisuals(true);
@@ -2178,7 +2194,7 @@ export class OverworldScene implements Scene {
           }
         }
         this.syncBillboardYaw(dt);
-        updateVisibleTerrainChunks(this.chunks, this.gridX, this.gridY);
+        this.updateChunkFrustumCulling(true);
         this.onStepCompleted();
         return;
       }
@@ -3291,9 +3307,41 @@ export class OverworldScene implements Scene {
     );
   }
 
+  private updateChunkFrustumCulling(force = false): void {
+    if (this.chunks.length === 0) return;
+    const cam = this.game.cameraRig.camera;
+    const aspect = cam.aspect;
+    const moved =
+      force ||
+      this._lastCullGridX !== this.gridX ||
+      this._lastCullGridY !== this.gridY ||
+      this._lastCullAspect !== aspect ||
+      this._lastCullCamPos.distanceToSquared(cam.position) > 1e-5 ||
+      1 - Math.abs(this._lastCullCamQuat.dot(cam.quaternion)) > 1e-5;
+    if (!moved) return;
+
+    cam.updateMatrixWorld();
+    this._chunkProjScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    this._chunkFrustum.setFromProjectionMatrix(this._chunkProjScreen);
+    updateVisibleTerrainChunks(
+      this.chunks,
+      this.gridX,
+      this.gridY,
+      48,
+      this._chunkFrustum
+    );
+
+    this._lastCullGridX = this.gridX;
+    this._lastCullGridY = this.gridY;
+    this._lastCullAspect = aspect;
+    this._lastCullCamPos.copy(cam.position);
+    this._lastCullCamQuat.copy(cam.quaternion);
+  }
+
   render(alpha = 1): void {
     if (this.game.renderer.isContextLost()) return;
     this.applyInterpolatedVisuals(alpha);
+    this.updateChunkFrustumCulling();
     this.postFx.setQualityTier(this.game.renderer.getQualityTier());
     this.postFx.setPixelEffect(this.game.renderer.isPixelEffectEnabled());
     this.postFx.setPostFxOptions(this.game.renderer.getPostFxOptions());

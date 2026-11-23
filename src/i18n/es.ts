@@ -423,6 +423,7 @@ export const ES = {
     casa_bruma_hab: 'Casa Bruma · Habitación',
     casa_cumbre_pb: 'Refugio Cumbre · Sala y Cocina',
     casa_cumbre_hab: 'Refugio Cumbre · Habitación',
+    test_riverbank: 'Ribera de Prueba (P1)',
   } as Record<string, string>,
   tutorial: {
     headerBadge: 'INSTRUCCIÓN INICIAL',

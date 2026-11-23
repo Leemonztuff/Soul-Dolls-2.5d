@@ -10,6 +10,11 @@ import {
   attachCameraOcclusionCutout,
   OCCLUSION_TERRAIN_MIN_REL_Y,
 } from './OcclusionCutout.ts';
+import {
+  extractRockyCliffOrnamentAnchors,
+  type CliffOrnamentAnchor,
+} from './RockyCliffMesher.ts';
+import { analyzeTerrainContours } from './TerrainContourAnalyzer.ts';
 import { detectCliffBoundaries } from './TerrainMesher.ts';
 
 export type CliffOrnamentKind =
@@ -261,38 +266,56 @@ function getBiomeOrnamentTint(
 ): [number, number, number] {
   if (kind === 'crystal_icicle') {
     return map.biome === 'cave' || map.music === 'cave'
-      ? [0.84, 0.72, 1.0]
-      : [0.92, 0.98, 1.0];
+      ? [0.82, 0.70, 0.98]
+      : [0.90, 0.96, 1.0];
   }
   if (kind === 'hanging_vine') {
-    return map.biome === 'forest' ? [0.85, 0.96, 0.84] : [0.92, 0.95, 0.85];
+    return map.biome === 'forest' ? [0.76, 0.87, 0.74] : [0.78, 0.86, 0.74];
   }
   if (map.biome === 'cave' || map.music === 'cave') {
-    return [0.76, 0.72, 0.92];
+    return [0.74, 0.70, 0.88];
   }
   if (map.biome === 'snow') {
-    return [0.94, 0.97, 1.0];
+    return [0.92, 0.96, 1.0];
   }
-  return [0.94, 0.94, 0.92];
+  return [0.84, 0.86, 0.82];
+}
+
+function selectAnchorOrnamentKind(
+  map: MapDef,
+  anchor: CliffOrnamentAnchor,
+  r: number
+): CliffOrnamentKind | null {
+  if (r > 0.50) return null; // Leave ~50% of cliff rims open so sculpted 3D shoulders & strata breathe naturally
+
+  if (map.biome === 'cave' || map.music === 'cave') {
+    if (anchor.suitability.crystalIcicle && r < 0.24) return 'crystal_icicle';
+    return anchor.suitability.crackedTrim ? 'cracked_trim' : null;
+  }
+  if (map.biome === 'snow' || anchor.topTile === 'snow') {
+    if (anchor.suitability.crystalIcicle && r < 0.26) return 'crystal_icicle';
+    return anchor.suitability.edgeLip ? 'edge_lip' : null;
+  }
+  if (map.biome === 'forest' || map.biome === 'meadow') {
+    if (anchor.suitability.hangingVine && r < 0.20) return 'hanging_vine';
+    if (anchor.suitability.crackedTrim && r >= 0.36) return 'cracked_trim';
+    return anchor.suitability.edgeLip ? 'edge_lip' : null;
+  }
+  if (anchor.suitability.crackedTrim && r < 0.26) return 'cracked_trim';
+  return anchor.suitability.edgeLip ? 'edge_lip' : null;
 }
 
 export function buildCliffOrnamentsMesh(
   map: MapDef,
   material?: THREE.Material
 ): THREE.Group | null {
-  const placements = planCliffOrnaments(map);
-  if (placements.length === 0) return null;
+  if (map.isInterior) return null;
 
-  const group = new THREE.Group();
-  let ownedTex: THREE.CanvasTexture | null = null;
-  let ownedMat: THREE.MeshStandardMaterial | null = null;
-  let mat = material;
-  if (!mat) {
-    ownedTex = createCliffOrnamentTexture();
-    ownedMat = createCliffOrnamentMaterial(ownedTex);
-    mat = ownedMat;
-  }
+  const contourAnalysis = analyzeTerrainContours(map);
+  const anchors = extractRockyCliffOrnamentAnchors(map, contourAnalysis);
+  if (anchors.length === 0) return null;
 
+  const seed = map.decoration?.seed ?? 17;
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -304,65 +327,157 @@ export function buildCliffOrnamentsMesh(
   const epsU = 0.002;
   const epsV = 0.008;
 
-  for (const p of placements) {
-    const slot = ORNAMENT_SLOT_INDEX[p.kind];
-    const u0 = slot * slotStep + epsU;
-    const u1 = (slot + 1) * slotStep - epsU;
-    const vTop = 1 - epsV;
-    const vBot = Math.max(epsV, 1 - Math.min(1, p.height / 0.64) + epsV);
+  const pushQuad3D = (
+    bl: readonly [number, number, number],
+    br: readonly [number, number, number],
+    tr: readonly [number, number, number],
+    tl: readonly [number, number, number],
+    u0: number,
+    u1: number,
+    vBot: number,
+    vTop: number,
+    kind: CliffOrnamentKind,
+    face: CliffDirection,
+    tintJitter: number
+  ) => {
+    const e1x = br[0] - bl[0];
+    const e1y = br[1] - bl[1];
+    const e1z = br[2] - bl[2];
+    const e2x = tl[0] - bl[0];
+    const e2y = tl[1] - bl[1];
+    const e2z = tl[2] - bl[2];
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len <= 1e-6) return;
+    nx /= len;
+    ny /= len;
+    nz /= len;
 
-    const yTop = p.y;
-    const yBot = p.y - p.height;
-    const hw = p.width * 0.5;
-
-    let verts: [
-      [number, number, number],
-      [number, number, number],
-      [number, number, number],
-      [number, number, number],
-    ];
-    if (p.face === 'north') {
-      verts = [
-        [p.x + hw, yBot, p.z],
-        [p.x - hw, yBot, p.z],
-        [p.x - hw, yTop, p.z],
-        [p.x + hw, yTop, p.z],
-      ];
-    } else if (p.face === 'south') {
-      verts = [
-        [p.x - hw, yBot, p.z],
-        [p.x + hw, yBot, p.z],
-        [p.x + hw, yTop, p.z],
-        [p.x - hw, yTop, p.z],
-      ];
-    } else if (p.face === 'west') {
-      verts = [
-        [p.x, yBot, p.z - hw],
-        [p.x, yBot, p.z + hw],
-        [p.x, yTop, p.z + hw],
-        [p.x, yTop, p.z - hw],
-      ];
-    } else {
-      verts = [
-        [p.x, yBot, p.z + hw],
-        [p.x, yBot, p.z - hw],
-        [p.x, yTop, p.z - hw],
-        [p.x, yTop, p.z + hw],
-      ];
-    }
-
-    const [cr, cg, cb] = getBiomeOrnamentTint(map, p.kind);
+    const verts = [bl, br, tr, tl] as const;
+    const [cr, cg, cb] = getBiomeOrnamentTint(map, kind);
     const dirMul =
-      p.face === 'south' ? 1.0 : p.face === 'east' ? 0.94 : p.face === 'west' ? 0.88 : 0.82;
+      (face === 'south' ? 1.0 : face === 'east' ? 0.94 : face === 'west' ? 0.88 : 0.82) *
+      tintJitter;
 
     for (let i = 0; i < 4; i++) {
       positions.push(verts[i][0], verts[i][1], verts[i][2]);
-      normals.push(p.nx, 0, p.nz);
+      normals.push(nx, ny, nz);
       colors.push(cr * dirMul, cg * dirMul, cb * dirMul);
     }
     uvs.push(u0, vBot, u1, vBot, u1, vTop, u0, vTop);
     indices.push(vertBase, vertBase + 1, vertBase + 2, vertBase, vertBase + 2, vertBase + 3);
     vertBase += 4;
+  };
+
+  for (const anchor of anchors) {
+    const qx = anchor.tileX * 31 + Math.round(anchor.ax * 100);
+    const qz = anchor.tileZ * 37 + Math.round(anchor.az * 100);
+    const r = deterministicHash(qx, qz, anchor.face, seed);
+    const kind = selectAnchorOrnamentKind(map, anchor, r);
+    if (!kind) continue;
+
+    const r2 = deterministicHash(
+      anchor.tileX * 19 + Math.round(anchor.bx * 100),
+      anchor.tileZ * 23 + Math.round(anchor.bz * 100),
+      anchor.face,
+      seed + 79
+    );
+
+    const slot = ORNAMENT_SLOT_INDEX[kind];
+    const slotU0 = slot * slotStep + epsU;
+    const slotU1 = (slot + 1) * slotStep - epsU;
+    const uFlip = r2 > 0.5;
+    const u0 = uFlip ? slotU1 : slotU0;
+    const u1 = uFlip ? slotU0 : slotU1;
+    const tintJitter = 0.93 + r2 * 0.09;
+
+    const widthFrac = 0.80 + r2 * 0.20;
+    const shift = (1 - widthFrac) * (0.2 + r * 0.6);
+    const tA = shift;
+    const tB = shift + widthFrac;
+
+    const hLen = Math.hypot(anchor.nx, anchor.nz);
+    const hnx = hLen > 1e-5 ? anchor.nx / hLen : 0;
+    const hnz = hLen > 1e-5 ? anchor.nz / hLen : 1;
+
+    if (kind === 'hanging_vine' || kind === 'crystal_icicle') {
+      // Hang vertically off the protruding 3D overhang lip crest in front of undercut rock
+      const hangClearOut = anchor.isOverhang ? 0.024 : 0.032;
+      const ax = anchor.ax + (anchor.bx - anchor.ax) * tA + hnx * hangClearOut;
+      const az = anchor.az + (anchor.bz - anchor.az) * tA + hnz * hangClearOut;
+      const bx = anchor.ax + (anchor.bx - anchor.ax) * tB + hnx * hangClearOut;
+      const bz = anchor.az + (anchor.bz - anchor.az) * tB + hnz * hangClearOut;
+
+      const yTopHang = anchor.isOverhang
+        ? anchor.yTop * 0.35 + anchor.yLipBottom * 0.65
+        : anchor.yTop;
+      const rawHang = 0.32 + r2 * 0.24;
+      const hangH = Math.min(anchor.maxHangHeight * 0.92, rawHang);
+      if (hangH < 0.12) continue;
+
+      const yBotHang = yTopHang - hangH;
+      const vTop = 1 - epsV;
+      const vBot = Math.max(epsV, 1 - Math.min(1, hangH / 0.60) + epsV);
+
+      pushQuad3D(
+        [ax, yBotHang, az],
+        [bx, yBotHang, bz],
+        [bx, yTopHang, bz],
+        [ax, yTopHang, az],
+        u0,
+        u1,
+        vBot,
+        vTop,
+        kind,
+        anchor.face,
+        tintJitter
+      );
+    } else {
+      // Coping & cracked trim conform directly to the beveled 3D shoulder / outer lip face
+      const axT = anchor.axRim + (anchor.bxRim - anchor.axRim) * tA + hnx * 0.015;
+      const azT = anchor.azRim + (anchor.bzRim - anchor.azRim) * tA + hnz * 0.015;
+      const bxT = anchor.axRim + (anchor.bxRim - anchor.axRim) * tB + hnx * 0.015;
+      const bzT = anchor.azRim + (anchor.bzRim - anchor.azRim) * tB + hnz * 0.015;
+
+      const axB = anchor.ax + (anchor.bx - anchor.ax) * tA + hnx * 0.022;
+      const azB = anchor.az + (anchor.bz - anchor.az) * tA + hnz * 0.022;
+      const bxB = anchor.ax + (anchor.bx - anchor.ax) * tB + hnx * 0.022;
+      const bzB = anchor.az + (anchor.bz - anchor.az) * tB + hnz * 0.022;
+
+      const yRim = anchor.yRimTop - 0.004;
+      const trimDrop = Math.max(0.09, anchor.yRimTop - anchor.yLipBottom);
+      const yBotTrim = yRim - Math.min(trimDrop, 0.16);
+      const vTop = 1 - epsV;
+      const vBot = Math.max(epsV, 1 - Math.min(1, trimDrop / 0.38) + epsV);
+
+      pushQuad3D(
+        [axB, yBotTrim, azB],
+        [bxB, yBotTrim, bzB],
+        [bxT, yRim, bzT],
+        [axT, yRim, azT],
+        u0,
+        u1,
+        vBot,
+        vTop,
+        kind,
+        anchor.face,
+        tintJitter
+      );
+    }
+  }
+
+  if (indices.length === 0) return null;
+
+  const group = new THREE.Group();
+  let ownedTex: THREE.CanvasTexture | null = null;
+  let ownedMat: THREE.MeshStandardMaterial | null = null;
+  let mat = material;
+  if (!mat) {
+    ownedTex = createCliffOrnamentTexture();
+    ownedMat = createCliffOrnamentMaterial(ownedTex);
+    mat = ownedMat;
   }
 
   const geo = new THREE.BufferGeometry();

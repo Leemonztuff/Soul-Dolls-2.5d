@@ -294,6 +294,10 @@ export function buildStaircaseMeshes(map: MapDef, material: THREE.Material): THR
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setAttribute('aCliffMeta', new THREE.Float32BufferAttribute(cliffMeta, 3));
+    geo.setAttribute(
+      'aSurfaceBlend',
+      new THREE.Float32BufferAttribute(new Float32Array((positions.length / 3) * 4), 4)
+    );
     geo.setIndex(indices);
     geo.computeBoundingSphere();
 

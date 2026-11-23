@@ -206,6 +206,20 @@ export class Game {
       this.battleHud.hide();
       this.battleTransition.hide();
       this.scenes.replace(new GalleryScene(this));
+    } else if (params.has('testmap')) {
+      const testMapId = params.get('testmap') || 'test_riverbank';
+      const freshSave = this.saveManager.createNew();
+      freshSave.options = { ...this.saveData.options };
+      freshSave.mapId = testMapId;
+      freshSave.playerX = testMapId === 'test_riverbank' ? 10 : 24;
+      freshSave.playerY = testMapId === 'test_riverbank' ? 25 : 26;
+      freshSave.playerDir = 'up';
+      freshSave.flags.starter_chosen = true;
+      freshSave.flags.isekai_intro_seen = true;
+      freshSave.flags.villa_guide_intro_done = true;
+      this.saveData = freshSave;
+      this.applyOptions();
+      this.scenes.replace(new OverworldScene(this));
     } else {
       this.startTitle();
       if (params.has('studio')) {

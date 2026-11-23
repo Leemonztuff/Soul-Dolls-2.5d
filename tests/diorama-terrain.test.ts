@@ -74,7 +74,7 @@ function makeCliffTestMap(biome: BattleBiome = 'forest'): MapDef {
 }
 
 describe('Diorama 90-degree cliff terrain & shaders', () => {
-  it('detects 90-degree cliff boundaries and emits non-sheared vertical wall planes with exact normals', () => {
+  it('detects cliff boundaries and emits non-sheared organic plateau & vertical wall triangles with exact normals', () => {
     const map = makeCliffTestMap('mountain');
     const boundaries = detectCliffBoundaries(map);
     expect(boundaries.length).toBeGreaterThan(0);
@@ -95,45 +95,67 @@ describe('Diorama 90-degree cliff terrain & shaders', () => {
     const norm = mesh.geometry.getAttribute('normal') as THREE.BufferAttribute;
     const uv = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute;
     const cliffMeta = mesh.geometry.getAttribute('aCliffMeta') as THREE.BufferAttribute;
+    const index = mesh.geometry.getIndex() as THREE.BufferAttribute;
     expect(cliffMeta).toBeDefined();
     expect(cliffMeta.itemSize).toBe(3);
+    expect(index).toBeDefined();
 
-    let horizontalQuads = 0;
-    let verticalQuads = 0;
-    const cliffRect = getTileUv('cliff_rock');
+    let horizontalArea = 0;
+    let cliffTris = 0;
+    let slopedOrBevelTris = 0;
+    let undercutTris = 0;
+    const allowedCliffRects = (
+      ['cliff_rock', 'mossy_stone', 'cracked_stone', 'dirt', 'stone', 'cave_floor'] as const
+    ).map((k) => getTileUv(k));
 
-    for (let i = 0; i < pos.count; i += 4) {
-      const ny = norm.getY(i);
-      const nx = norm.getX(i);
-      const nz = norm.getZ(i);
+    for (let t = 0; t < index.count; t += 3) {
+      const i0 = index.getX(t);
+      const i1 = index.getX(t + 1);
+      const i2 = index.getX(t + 2);
+      const ny = norm.getY(i0);
+      const nx = norm.getX(i0);
+      const nz = norm.getZ(i0);
+
       if (Math.abs(ny - 1) < 0.001) {
-        horizontalQuads++;
-        // Every flat tile top must have identical Y across all 4 vertices (no diagonal stretching)
-        const y0 = pos.getY(i);
-        expect(pos.getY(i + 1)).toBeCloseTo(y0);
-        expect(pos.getY(i + 2)).toBeCloseTo(y0);
-        expect(pos.getY(i + 3)).toBeCloseTo(y0);
-      } else {
-        verticalQuads++;
-        // Vertical cliff wall must have strictly horizontal cardinal unit normal
-        expect(Math.abs(ny)).toBeLessThan(0.001);
-        expect(Math.abs(Math.abs(nx) + Math.abs(nz) - 1)).toBeLessThan(0.001);
-        expect(cliffMeta.getX(i)).toBeCloseTo(1.0);
+        // Every flat top or lower-floor triangle must have identical Y across all 3 vertices
+        const y0 = pos.getY(i0);
+        expect(pos.getY(i1)).toBeCloseTo(y0);
+        expect(pos.getY(i2)).toBeCloseTo(y0);
 
-        // Verify UVs stay strictly inside cliff_rock atlas cell (zero shearing/bleeding)
-        for (let k = 0; k < 4; k++) {
-          const u = uv.getX(i + k);
-          const v = uv.getY(i + k);
-          expect(u).toBeGreaterThanOrEqual(cliffRect.u0 - 1e-5);
-          expect(u).toBeLessThanOrEqual(cliffRect.u1 + 1e-5);
-          expect(v).toBeGreaterThanOrEqual(cliffRect.v0 - 1e-5);
-          expect(v).toBeLessThanOrEqual(cliffRect.v1 + 1e-5);
+        const ax = pos.getX(i0), az = pos.getZ(i0);
+        const bx = pos.getX(i1), bz = pos.getZ(i1);
+        const cx = pos.getX(i2), cz = pos.getZ(i2);
+        const signedArea = ((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) * -0.5;
+        expect(signedArea).toBeGreaterThan(0);
+        horizontalArea += signedArea;
+      } else {
+        cliffTris++;
+        // 3D rocky cliff triangles must have normalized 3D unit normals and cliff metadata flag
+        expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1.0, 4);
+        expect(cliffMeta.getX(i0)).toBeCloseTo(1.0);
+        if (ny > 0.05) slopedOrBevelTris++;
+        if (ny < -0.05) undercutTris++;
+
+        for (const vi of [i0, i1, i2]) {
+          const u = uv.getX(vi);
+          const v = uv.getY(vi);
+          const insideAnySlot = allowedCliffRects.some(
+            (r) =>
+              u >= r.u0 - 1e-5 &&
+              u <= r.u1 + 1e-5 &&
+              v >= r.v0 - 1e-5 &&
+              v <= r.v1 + 1e-5
+          );
+          expect(insideAnySlot).toBe(true);
         }
       }
     }
 
-    expect(horizontalQuads).toBe(25);
-    expect(verticalQuads).toBeGreaterThanOrEqual(boundaries.length);
+    // Watertight 5x5 tile horizontal footprint must equal exact 25.0 world square units
+    expect(horizontalArea).toBeCloseTo(25.0, 4);
+    expect(cliffTris).toBeGreaterThan(boundaries.length * 4);
+    expect(slopedOrBevelTris).toBeGreaterThan(0);
+    expect(undercutTris).toBeGreaterThan(0);
 
     mesh.geometry.dispose();
     mat.dispose();
